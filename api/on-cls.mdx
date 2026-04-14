@@ -1,0 +1,116 @@
+---
+title: "onCLS() — Cumulative Layout Shift function reference"
+description: "Measures visual stability by tracking layout shifts. Reports a unitless double layout shift score when the page is hidden. Supported in Chromium only."
+---
+
+`onCLS()` calculates the [Cumulative Layout Shift (CLS)](https://web.dev/articles/cls) score for the current page and invokes your callback once the value is ready to be reported. The reported value is a `double` representing the [layout shift score](https://web.dev/articles/cls#layout_shift_score) — the sum of individual shift scores across all sessions, where each shift score is the product of impact fraction and distance fraction. CLS is a Core Web Vital that quantifies visual instability; lower is better. The callback fires when the page's `visibilityState` changes to `hidden`, so it can be called multiple times during a single page load.
+
+## Function signature
+
+```typescript
+function onCLS(callback: (metric: CLSMetric) => void, opts?: ReportOpts): void
+```
+
+## Parameters
+
+<ParamField body="callback" type="(metric: CLSMetric) => void" required>
+  Called with a `CLSMetric` object when the CLS value is ready to report, and again each time the page is hidden. On the first call, `value` and `delta` are equal.
+</ParamField>
+
+<ParamField body="opts.reportAllChanges" type="boolean">
+  When `true`, the callback fires as soon as the CLS value is first determined and again whenever it increases. Only fires when the metric value changes — a new layout shift that doesn't raise the overall score will not trigger a call. Defaults to `false`.
+</ParamField>
+
+## Return value
+
+`void`. As a side effect, `onCLS()` creates a `PerformanceObserver` that listens for `layout-shift` entries for the lifetime of the page. Call this function at most once per page load.
+
+## Metric object (CLSMetric)
+
+The callback receives a `CLSMetric` object with the following properties:
+
+<ResponseField name="name" type="string">
+  Always `'CLS'`.
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  The cumulative layout shift score (`double`). This is the largest windowed session value across all layout-shift entries observed since navigation.
+</ResponseField>
+
+<ResponseField name="rating" type="'good' | 'needs-improvement' | 'poor'">
+  Classification against the CLS thresholds (`CLSThresholds = [0.1, 0.25]`):
+
+  | Rating | Value |
+  | --- | --- |
+  | `good` | ≤ 0.1 |
+  | `needs-improvement` | > 0.1 and ≤ 0.25 |
+  | `poor` | > 0.25 |
+</ResponseField>
+
+<ResponseField name="entries" type="LayoutShift[]">
+  The `layout-shift` performance entries that contributed to the current CLS score. May be empty if CLS is `0` and no shifts occurred.
+</ResponseField>
+
+<ResponseField name="delta" type="number">
+  The difference between the current `value` and the last reported value. On the first report, `delta` equals `value`. Use `delta` when your analytics provider requires incremental updates rather than overwriting the previous value.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  A unique identifier for this metric instance. Use alongside `delta` to aggregate multiple reports for the same page load. A new `id` is generated after each back/forward cache restore.
+</ResponseField>
+
+<ResponseField name="navigationType" type="string">
+  The navigation type: `'navigate'`, `'reload'`, `'back-forward'`, `'back-forward-cache'`, `'prerender'`, or `'restore'`.
+</ResponseField>
+
+## Usage
+
+**Basic usage** — receive the final CLS value when the page is hidden:
+
+```js
+import { onCLS } from 'web-vitals';
+
+onCLS(console.log);
+```
+
+**Report every change** — useful for debugging or tracking CLS as it evolves:
+
+```js
+import { onCLS } from 'web-vitals';
+
+onCLS(console.log, { reportAllChanges: true });
+```
+
+**Aggregate deltas** — for analytics providers that don't support value overwriting:
+
+```js
+import { onCLS } from 'web-vitals';
+
+function sendToAnalytics({ name, id, delta }) {
+  navigator.sendBeacon('/analytics', JSON.stringify({ name, id, delta }));
+}
+
+onCLS(sendToAnalytics);
+```
+
+## Behavior notes
+
+<Note>
+  CLS should be monitored for the entire page lifespan. Because browsers often suppress callbacks after a page is backgrounded, `onCLS()` always fires when `visibilityState` changes to `hidden`. Your callback may therefore be called more than once per page load. Use the `id` and `delta` properties to correctly aggregate multiple reports.
+</Note>
+
+<Note>
+  When `reportAllChanges` is `true`, the callback fires on every increase to the CLS metric value, not for every individual layout shift. A layout shift that does not raise the cumulative score will not trigger a report.
+</Note>
+
+<Warning>
+  Do not call `onCLS()` more than once per page load. Each call registers a new `PerformanceObserver` and attaches event listeners for the lifetime of the page. Repeated calls on the same page will cause a memory leak.
+</Warning>
+
+<Warning>
+  CLS is not reported if the page was loaded in the background (i.e., the tab was hidden before the first paint). In that case, your callback will never be invoked.
+</Warning>
+
+## Browser support
+
+`onCLS()` requires the `layout-shift` entry type, which is only available in **Chromium-based browsers**. The function will silently do nothing in Firefox and Safari.

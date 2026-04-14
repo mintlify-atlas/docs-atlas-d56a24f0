@@ -1,0 +1,403 @@
+---
+title: "Attribution interfaces for all five web-vitals metrics"
+description: "Reference for CLSAttribution, FCPAttribution, INPAttribution, LCPAttribution, and TTFBAttribution — only available in the attribution build."
+---
+
+Attribution types are interfaces added to each `MetricWithAttribution` object when you use the [attribution build](/guides/attribution) of web-vitals. Each metric callback receives an `attribution` property containing diagnostic data that identifies _why_ the metric value is what it is — for example, which element caused the largest layout shift, or which phase of the browser's request pipeline contributed most to TTFB. This data is not included in the standard build; you must opt in by changing your import path.
+
+<Note>
+  All attribution types require importing from `web-vitals/attribution`, not `web-vitals`. Change your imports like this:
+
+  ```typescript
+  // Standard build — no attribution data
+  import { onCLS, onLCP, onINP } from 'web-vitals';
+
+  // Attribution build — includes attribution on each metric object
+  import { onCLS, onLCP, onINP } from 'web-vitals/attribution';
+  ```
+</Note>
+
+## CLSAttribution
+
+`CLSAttribution` identifies the largest single layout shift that contributed to the page's CLS score and the element that shifted.
+
+```typescript
+interface CLSAttribution {
+  largestShiftTarget?: string;
+  largestShiftTime?: DOMHighResTimeStamp;
+  largestShiftValue?: number;
+  largestShiftEntry?: LayoutShift;
+  largestShiftSource?: LayoutShiftAttribution;
+  loadState?: LoadState;
+}
+```
+
+<ResponseField name="largestShiftTarget" type="string">
+  A CSS selector string identifying the first element (in document order) that shifted during the largest layout shift contributing to the CLS score. If a `generateTarget` function was passed via `AttributionReportOpts`, this will be its return value (falling back to the default selector if `null` or `undefined` was returned).
+</ResponseField>
+
+<ResponseField name="largestShiftTime" type="DOMHighResTimeStamp">
+  The timestamp when the largest layout shift occurred, in milliseconds from the navigation start.
+</ResponseField>
+
+<ResponseField name="largestShiftValue" type="number">
+  The individual layout shift score of the largest shift. This is the score for the single shift entry, not the cumulative CLS score.
+</ResponseField>
+
+<ResponseField name="largestShiftEntry" type="LayoutShift">
+  The raw `LayoutShift` performance entry for the largest shift. Use this when you need more detail than the `largestShiftTarget`, `largestShiftTime`, and `largestShiftValue` fields provide — for example, to inspect all `sources` in the shift.
+</ResponseField>
+
+<ResponseField name="largestShiftSource" type="LayoutShiftAttribution">
+  The first element source (in document order) from the `sources` list of `largestShiftEntry`. Each `LayoutShiftAttribution` has a `node` reference, a `previousRect`, and a `currentRect` describing where the element was before and after the shift.
+</ResponseField>
+
+<ResponseField name="loadState" type="LoadState">
+  The loading phase of the document at the time the largest shift occurred. See [LoadState](/api/metric#the-loadstate-type) for the possible values.
+</ResponseField>
+
+**Example:**
+
+```typescript
+import { onCLS } from 'web-vitals/attribution';
+
+onCLS((metric) => {
+  const { largestShiftTarget, largestShiftValue, loadState } = metric.attribution;
+
+  console.log('Largest shifting element:', largestShiftTarget);
+  console.log('Shift score:', largestShiftValue);
+  console.log('Document state at shift time:', loadState);
+});
+```
+
+## FCPAttribution
+
+`FCPAttribution` breaks FCP into two sub-durations and records the document load state at paint time.
+
+```typescript
+interface FCPAttribution {
+  timeToFirstByte: number;
+  firstByteToFCP: number;
+  loadState: LoadState;
+  fcpEntry?: PerformancePaintTiming;
+  navigationEntry?: PerformanceNavigationTiming;
+}
+```
+
+<ResponseField name="timeToFirstByte" type="number" required>
+  The time from when the user initiated the navigation until the browser received the first byte of the HTML response (TTFB), in milliseconds.
+</ResponseField>
+
+<ResponseField name="firstByteToFCP" type="number" required>
+  The delta between TTFB and when the browser painted the first contentful content, in milliseconds. This represents browser and resource processing time after the initial response byte was received.
+</ResponseField>
+
+<ResponseField name="loadState" type="LoadState" required>
+  The loading phase of the document when FCP occurred. Ideally FCP happens during the `loading` or `dom-interactive` phase, before all scripts have finished running.
+</ResponseField>
+
+<ResponseField name="fcpEntry" type="PerformancePaintTiming">
+  The raw `PerformancePaintTiming` entry (with `name: 'first-contentful-paint'`) that corresponds to FCP.
+</ResponseField>
+
+<ResponseField name="navigationEntry" type="PerformanceNavigationTiming">
+  The `navigation` entry for the current page. Useful for diagnosing general page load issues — for example, accessing `navigationEntry?.serverTiming` to inspect server-side timing headers.
+</ResponseField>
+
+**Example:**
+
+```typescript
+import { onFCP } from 'web-vitals/attribution';
+
+onFCP((metric) => {
+  const { timeToFirstByte, firstByteToFCP, loadState } = metric.attribution;
+
+  console.log('TTFB:', timeToFirstByte, 'ms');
+  console.log('First byte to FCP:', firstByteToFCP, 'ms');
+  console.log('Load state at FCP:', loadState);
+});
+```
+
+## INPAttribution
+
+`INPAttribution` is the most detailed attribution object. It identifies the specific interaction that drove the INP value, breaks the interaction duration into three sub-parts (input delay, processing duration, presentation delay), and — when the Long Animation Frame API is available — surfaces information about scripts that ran during the interaction.
+
+```typescript
+interface INPAttribution {
+  interactionTarget: string;
+  interactionTime: DOMHighResTimeStamp;
+  interactionType: 'pointer' | 'keyboard';
+  nextPaintTime: DOMHighResTimeStamp;
+  processedEventEntries: PerformanceEventTiming[];
+  inputDelay: number;
+  processingDuration: number;
+  presentationDelay: number;
+  loadState: LoadState;
+  longAnimationFrameEntries: PerformanceLongAnimationFrameTiming[];
+  longestScript?: INPLongestScriptSummary;
+  totalScriptDuration?: number;
+  totalStyleAndLayoutDuration?: number;
+  totalPaintDuration?: number;
+  totalUnattributedDuration?: number;
+}
+```
+
+<ResponseField name="interactionTarget" type="string" required>
+  A CSS selector string identifying the element the user first interacted with during the INP candidate interaction. An empty string means the element was removed from the DOM after the interaction occurred. If a `generateTarget` function was passed via `INPAttributionReportOpts`, this will be its return value (falling back to the default selector if `null` or `undefined` was returned).
+</ResponseField>
+
+<ResponseField name="interactionTime" type="DOMHighResTimeStamp" required>
+  The timestamp of the first user interaction in the animation frame where the INP candidate interaction occurred, in milliseconds. If multiple interactions occurred in the same frame, only the first is reported here.
+</ResponseField>
+
+<ResponseField name="interactionType" type="'pointer' | 'keyboard'" required>
+  The category of the interaction. `'pointer'` covers `pointerdown`, `pointerup`, and `click` events. `'keyboard'` covers `keydown` and `keyup` events.
+</ResponseField>
+
+<ResponseField name="nextPaintTime" type="DOMHighResTimeStamp" required>
+  The best-guess timestamp of the next paint after the interaction, in milliseconds. Derived from `startTime + duration` of the event timing entry, but clamped so it is never reported before the interaction's processing end time (because durations are rounded to the nearest 8ms and may be rounded down).
+</ResponseField>
+
+<ResponseField name="processedEventEntries" type="PerformanceEventTiming[]" required>
+  All `PerformanceEventTiming` entries processed within the same animation frame as the INP candidate interaction. This array can be large. Set `includeProcessedEventEntries: false` in `INPAttributionReportOpts` to receive an empty array here and conserve memory.
+</ResponseField>
+
+<ResponseField name="inputDelay" type="number" required>
+  Time in milliseconds from when the user interacted until the browser could begin running event listeners. A long input delay typically means the main thread was busy with other work at the time of interaction.
+</ResponseField>
+
+<ResponseField name="processingDuration" type="number" required>
+  Time in milliseconds from when the first event listener started running until all event listener processing finished. A long processing duration means your event handlers are doing too much synchronous work.
+</ResponseField>
+
+<ResponseField name="presentationDelay" type="number" required>
+  Time in milliseconds from when the browser finished processing all event listeners until the next frame was presented on screen. Includes main-thread work such as `requestAnimationFrame` callbacks, `ResizeObserver` and `IntersectionObserver` callbacks, and style and layout calculation, as well as off-main-thread work such as GPU and raster operations.
+</ResponseField>
+
+<ResponseField name="loadState" type="LoadState" required>
+  The loading phase of the document when the INP interaction occurred. Interactions during `dom-interactive` are particularly prone to long delays because scripts are still loading and executing.
+</ResponseField>
+
+<ResponseField name="longAnimationFrameEntries" type="PerformanceLongAnimationFrameTiming[]" required>
+  Long Animation Frame entries (from the Long Animation Frame API) that intersect the INP interaction window. Empty if the browser does not support the Long Animation Frame API, or if no long frames were detected during the interaction.
+</ResponseField>
+
+<ResponseField name="longestScript" type="INPLongestScriptSummary">
+  Summary of the longest Long Animation Frame script entry that intersected the INP duration. Only present when at least one `long-animation-frame` entry was detected. See [INPLongestScriptSummary](#inplongestscriptsummary) below.
+</ResponseField>
+
+<ResponseField name="totalScriptDuration" type="number">
+  Total duration in milliseconds of all Long Animation Frame scripts that intersected the INP duration, excluding time spent in forced style and layout (which is captured in `totalStyleAndLayoutDuration`). Only scripts above 5ms are reported by the Long Animation Frame API.
+</ResponseField>
+
+<ResponseField name="totalStyleAndLayoutDuration" type="number">
+  Total style and layout duration in milliseconds from all Long Animation Frames intersecting the INP interaction. Includes both end-of-frame style/layout and any forced style/layout triggered mid-frame.
+</ResponseField>
+
+<ResponseField name="totalPaintDuration" type="number">
+  Off-main-thread presentation delay in milliseconds: the time from the end of the last Long Animation Frame until the INP endpoint. Represents compositor, GPU, and raster work not accounted for in the main-thread durations.
+</ResponseField>
+
+<ResponseField name="totalUnattributedDuration" type="number">
+  Time in milliseconds that could not be attributed to any of the other duration fields. Includes scripts shorter than 5ms and work not captured by the Long Animation Frame API (for example, when the interaction frame is shorter than 50ms and therefore produces no Long Animation Frame entry). This field is `undefined` when no Long Animation Frames are present, to make it clear that the unattributed time is expected to be negligible.
+</ResponseField>
+
+**Example:**
+
+```typescript
+import { onINP } from 'web-vitals/attribution';
+
+onINP((metric) => {
+  const {
+    interactionTarget,
+    interactionType,
+    inputDelay,
+    processingDuration,
+    presentationDelay,
+    longestScript,
+  } = metric.attribution;
+
+  console.log('Interaction with:', interactionTarget, '(', interactionType, ')');
+  console.log('Input delay:', inputDelay, 'ms');
+  console.log('Processing duration:', processingDuration, 'ms');
+  console.log('Presentation delay:', presentationDelay, 'ms');
+
+  if (longestScript) {
+    console.log(
+      'Longest script in subpart',
+      longestScript.subpart,
+      '—',
+      longestScript.intersectingDuration,
+      'ms',
+    );
+  }
+});
+```
+
+## INPLongestScriptSummary
+
+`INPLongestScriptSummary` summarizes the single longest Long Animation Frame script entry that overlapped the INP interaction. It is the type of `INPAttribution.longestScript`.
+
+```typescript
+interface INPLongestScriptSummary {
+  entry: PerformanceScriptTiming;
+  subpart: 'input-delay' | 'processing-duration' | 'presentation-delay';
+  intersectingDuration: number;
+}
+```
+
+<ResponseField name="entry" type="PerformanceScriptTiming" required>
+  The raw `PerformanceScriptTiming` entry from the Long Animation Frame API. Exposes fields including `invoker`, `invokerType`, `sourceURL`, `sourceFunctionName`, `sourceCharPosition`, `executionStart`, `duration`, `pauseDuration`, and `forcedStyleAndLayoutDuration`.
+</ResponseField>
+
+<ResponseField name="subpart" type="'input-delay' | 'processing-duration' | 'presentation-delay'" required>
+  Which INP sub-part the longest script ran in. Use this to understand whether the script caused input delay (ran before event listeners started), extended processing duration (ran during event listener execution), or extended the presentation delay (ran after event listeners but before paint).
+</ResponseField>
+
+<ResponseField name="intersectingDuration" type="number" required>
+  The amount of time in milliseconds that this script's execution overlapped with the INP duration. A script may span multiple sub-parts; this value represents only the intersection with the INP window.
+</ResponseField>
+
+## LCPAttribution
+
+`LCPAttribution` breaks down the LCP timeline into four sequential phases and provides the raw performance entries for further analysis.
+
+```typescript
+interface LCPAttribution {
+  target?: string;
+  url?: string;
+  timeToFirstByte: number;
+  resourceLoadDelay: number;
+  resourceLoadDuration: number;
+  elementRenderDelay: number;
+  navigationEntry?: PerformanceNavigationTiming;
+  lcpResourceEntry?: PerformanceResourceTiming;
+  lcpEntry?: LargestContentfulPaint;
+}
+```
+
+<ResponseField name="target" type="string">
+  A CSS selector string identifying the LCP element. If a `generateTarget` function was passed via `AttributionReportOpts`, this will be its return value (falling back to the default selector if `null` or `undefined` was returned).
+</ResponseField>
+
+<ResponseField name="url" type="string">
+  The URL of the LCP image resource, if the LCP element is an image. Not set when the LCP element is a text node.
+</ResponseField>
+
+<ResponseField name="timeToFirstByte" type="number" required>
+  Time in milliseconds from when the user initiated the navigation until the browser received the first byte of the HTML response. This is the TTFB phase of LCP.
+</ResponseField>
+
+<ResponseField name="resourceLoadDelay" type="number" required>
+  Time in milliseconds between TTFB and when the browser began loading the LCP resource. `0` if the LCP element is a text node (no external resource to load). A large value here typically means the LCP resource was discovered late — for example, it was not in the initial HTML and required JavaScript to inject.
+</ResponseField>
+
+<ResponseField name="resourceLoadDuration" type="number" required>
+  Time in milliseconds to fully load the LCP resource. `0` if the LCP element is a text node. A large value may indicate a slow network, a large image, or lack of resource prioritization.
+</ResponseField>
+
+<ResponseField name="elementRenderDelay" type="number" required>
+  Time in milliseconds between when the LCP resource finished loading and when the LCP element was fully rendered on screen. A large value may indicate render-blocking resources or slow rendering paths.
+</ResponseField>
+
+<ResponseField name="navigationEntry" type="PerformanceNavigationTiming">
+  The `navigation` performance entry for the current page. Useful for diagnosing general load issues. Access `navigationEntry?.serverTiming` to inspect server-side timing data.
+</ResponseField>
+
+<ResponseField name="lcpResourceEntry" type="PerformanceResourceTiming">
+  The `resource` performance entry for the LCP image resource, if applicable. Provides detailed timing for the resource fetch itself.
+</ResponseField>
+
+<ResponseField name="lcpEntry" type="LargestContentfulPaint">
+  The raw `LargestContentfulPaint` performance entry corresponding to the current LCP value.
+</ResponseField>
+
+**Example:**
+
+```typescript
+import { onLCP } from 'web-vitals/attribution';
+
+onLCP((metric) => {
+  const {
+    target,
+    url,
+    timeToFirstByte,
+    resourceLoadDelay,
+    resourceLoadDuration,
+    elementRenderDelay,
+  } = metric.attribution;
+
+  console.log('LCP element:', target);
+  if (url) console.log('LCP resource URL:', url);
+  console.log('TTFB:', timeToFirstByte, 'ms');
+  console.log('Resource load delay:', resourceLoadDelay, 'ms');
+  console.log('Resource load duration:', resourceLoadDuration, 'ms');
+  console.log('Element render delay:', elementRenderDelay, 'ms');
+});
+```
+
+## TTFBAttribution
+
+`TTFBAttribution` breaks TTFB into the five sequential phases defined by the Navigation Timing API.
+
+```typescript
+interface TTFBAttribution {
+  waitingDuration: number;
+  cacheDuration: number;
+  dnsDuration: number;
+  connectionDuration: number;
+  requestDuration: number;
+  navigationEntry?: PerformanceNavigationTiming;
+}
+```
+
+<ResponseField name="waitingDuration" type="number" required>
+  Time in milliseconds from when the user initiated the page load until the browser started handling the request. Large values are typically caused by HTTP redirects, though other browser pre-request processing also contributes.
+</ResponseField>
+
+<ResponseField name="cacheDuration" type="number" required>
+  Time in milliseconds spent checking the HTTP cache for a matching response. For pages handled by a service worker, this duration generally includes service worker startup time and the time spent processing `fetch` event listeners.
+</ResponseField>
+
+<ResponseField name="dnsDuration" type="number" required>
+  Time in milliseconds to resolve the DNS for the requested domain.
+</ResponseField>
+
+<ResponseField name="connectionDuration" type="number" required>
+  Time in milliseconds to establish the connection to the server, including TCP handshake and TLS negotiation.
+</ResponseField>
+
+<ResponseField name="requestDuration" type="number" required>
+  Time in milliseconds from when the request was sent until the first byte of the response was received. This includes both network transit time and server processing time.
+</ResponseField>
+
+<ResponseField name="navigationEntry" type="PerformanceNavigationTiming">
+  The `navigation` performance entry for the current page. Access `navigationEntry?.serverTiming` to inspect server-side timing data injected via the `Server-Timing` HTTP header.
+</ResponseField>
+
+**Example:**
+
+```typescript
+import { onTTFB } from 'web-vitals/attribution';
+
+onTTFB((metric) => {
+  const {
+    waitingDuration,
+    cacheDuration,
+    dnsDuration,
+    connectionDuration,
+    requestDuration,
+    navigationEntry,
+  } = metric.attribution;
+
+  console.log('Waiting (redirects etc.):', waitingDuration, 'ms');
+  console.log('Cache/service worker:', cacheDuration, 'ms');
+  console.log('DNS:', dnsDuration, 'ms');
+  console.log('Connection:', connectionDuration, 'ms');
+  console.log('Request to first byte:', requestDuration, 'ms');
+
+  if (navigationEntry?.serverTiming?.length) {
+    console.log('Server-Timing entries:', navigationEntry.serverTiming);
+  }
+});
+```

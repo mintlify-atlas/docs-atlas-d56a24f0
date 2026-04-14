@@ -1,0 +1,144 @@
+---
+title: "Send web-vitals metrics to analytics and endpoints"
+description: "Send Web Vitals metrics to custom endpoints, Google Analytics, or Google Tag Manager. Covers batching, delta reporting, and reliable delivery."
+---
+
+Collecting Web Vitals data only has value if you can report it somewhere for analysis. The `web-vitals` library passes a metric object to your callback function, and it is up to you to forward that data to an analytics backend. This guide covers the most common patterns: sending to a custom HTTP endpoint, integrating with Google Analytics 4 or Google Tag Manager, batching multiple metrics into a single request, and reporting only deltas for analytics providers that require it.
+
+## Send to a custom endpoint
+
+The simplest approach is to serialize each metric and send it to an endpoint you control using [`navigator.sendBeacon()`](https://developer.mozilla.org/docs/Web/API/Navigator/sendBeacon). Unlike `fetch`, `sendBeacon` is designed to work reliably even while the page is unloading, which makes it the right choice for performance data.
+
+```js
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+function sendToAnalytics(metric) {
+  const body = JSON.stringify({
+    name: metric.name,
+    value: metric.value,
+    id: metric.id,
+
+    // Include additional data as needed...
+  });
+
+  // Use `navigator.sendBeacon()` to send the data, which supports
+  // sending while the page is unloading.
+  navigator.sendBeacon('/analytics', body);
+}
+
+onCLS(sendToAnalytics);
+onINP(sendToAnalytics);
+onLCP(sendToAnalytics);
+```
+
+<Tip>
+  Always include `metric.id` in your payload. It is a unique identifier for each metric instance that lets your backend deduplicate repeated reports and correlate deltas from the same page visit.
+</Tip>
+
+## Send to Google Analytics
+
+Google Analytics 4 (GA4) supports custom event parameters and non-integer values, which makes it well-suited for Web Vitals reporting. The key is to use the metric `id` as a unique event identifier (`metric_id`) so you can aggregate data correctly, and to send `delta` as the built-in `value` parameter so that multiple reports for the same metric can be summed server-side.
+
+```js
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+function sendToGoogleAnalytics({name, delta, value, id}) {
+  // Assumes the global `gtag()` function exists, see:
+  // https://developers.google.com/analytics/devguides/collection/ga4
+  gtag('event', name, {
+    // Built-in params:
+    value: delta, // Use `delta` so the value can be summed.
+    // Custom params:
+    metric_id: id, // Needed to aggregate events.
+    metric_value: value, // Optional.
+    metric_delta: delta, // Optional.
+
+    // OPTIONAL: any additional params or debug info here.
+    // See: https://web.dev/articles/debug-performance-in-the-field
+    // metric_rating: 'good' | 'needs-improvement' | 'poor',
+    // debug_info: '...',
+    // ...
+  });
+}
+
+onCLS(sendToGoogleAnalytics);
+onINP(sendToGoogleAnalytics);
+onLCP(sendToGoogleAnalytics);
+```
+
+<Note>
+  GA4 does not have built-in Web Vitals reports. To visualize the data, export it to [BigQuery](https://support.google.com/analytics/answer/9358801) or query it through the [Google Analytics Data API](https://developers.google.com/analytics/devguides/reporting/data/v1). See [Measure and debug performance with Google Analytics 4 and BigQuery](https://web.dev/articles/vitals-ga4) for a full walkthrough.
+</Note>
+
+## Send to Google Tag Manager
+
+You can call the `web-vitals` functions directly from a custom HTML tag in Google Tag Manager, but using a pre-built template is considerably easier. Two community-maintained templates are available:
+
+- **[Core Web Vitals](https://tagmanager.google.com/gallery/#/owners/gtm-templates-simo-ahava/templates/core-web-vitals)** by Simo Ahava — see the [accompanying guide](https://www.simoahava.com/analytics/track-core-web-vitals-in-ga4-with-google-tag-manager/) for setup and usage instructions.
+- **[Web Vitals Template for Google Tag Manager](https://github.com/google-marketing-solutions/web-vitals-gtm-template)** by the Google Marketing Solutions team — see the [README](https://github.com/google-marketing-solutions/web-vitals-gtm-template?tab=readme-ov-file#web-vitals-template-for-google-tag-manager) for details.
+
+Both templates handle the library loading, metric collection, and GA4 event firing for you, so you can get up and running without writing any JavaScript.
+
+## Batch multiple reports
+
+Not all metrics fire at the same time—LCP fires after the largest element renders, INP only fires after a user interaction, and CLS fires when the page becomes hidden. Sending each metric as a separate network request can add unnecessary overhead.
+
+Instead, accumulate metrics in a queue and flush the queue when the page is backgrounded or unloaded:
+
+```js
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+const queue = new Set();
+function addToQueue(metric) {
+  queue.add(metric);
+}
+
+function flushQueue() {
+  if (queue.size > 0) {
+    // Replace with whatever serialization method you prefer.
+    // Note: JSON.stringify will likely include more data than you need.
+    const body = JSON.stringify([...queue]);
+
+    // Use `navigator.sendBeacon()` to send the data, which supports
+    // sending while the page is unloading.
+    navigator.sendBeacon('/analytics', body);
+
+    queue.clear();
+  }
+}
+
+onCLS(addToQueue);
+onINP(addToQueue);
+onLCP(addToQueue);
+
+// Report all available metrics whenever the page is backgrounded or unloaded.
+addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    flushQueue();
+  }
+});
+```
+
+<Note>
+  The `visibilitychange` event is preferred over `beforeunload` and `unload` because those events are [not reliably fired](https://developers.google.com/web/updates/2018/07/page-lifecycle-api#legacy-lifecycle-apis-to-avoid) on mobile browsers and can block the back/forward cache.
+</Note>
+
+## Report only the delta
+
+Some analytics providers do not support overwriting previously sent values, so you cannot simply send the latest cumulative metric value on every callback invocation. Instead, send only the `delta`—the difference between the current value and the last-reported value—and sum all deltas with the same `id` server-side.
+
+```js
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+function logDelta({name, id, delta}) {
+  console.log(`${name} matching ID ${id} changed by ${delta}`);
+}
+
+onCLS(logDelta);
+onINP(logDelta);
+onLCP(logDelta);
+```
+
+<Tip>
+  On the first callback invocation, `value` and `delta` are always equal, so this pattern is safe to use unconditionally. Providers that support value overwriting (like GA4) can still use `delta` as the built-in `value` parameter and sum the events correctly.
+</Tip>

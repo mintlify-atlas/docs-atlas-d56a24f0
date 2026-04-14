@@ -1,0 +1,192 @@
+---
+title: "Upgrade guide: web-vitals v3 to v4 breaking changes"
+description: "v4 renames attribution fields to *Duration, splits TTFB's waitingDuration, adds INP breakdown timings, and deprecates onFID() in favour of onINP()."
+---
+
+Version 4.0.0 was released on 2024-05-13. It introduces several breaking renames across the attribution build, adds detailed INP breakdown timings backed by Long Animation Frame (LoAF) data, and formally deprecates `onFID()` ahead of its removal in v5. This guide covers every change you need to make when upgrading from v3.
+
+## Breaking changes
+
+### Base+polyfill build removed
+
+The `base+polyfill` build — which included the FID polyfill and a Navigation Timing polyfill for legacy Safari — has been removed.
+
+<Warning>
+  If you were importing from the `base+polyfill` entry point, switch to the standard `web-vitals` or `web-vitals/attribution` import path.
+</Warning>
+
+Additionally, all `getXXX()` functions that were deprecated in v3 (such as `getCLS`, `getFID`, `getLCP`) have been removed. Use the `onXXX()` equivalents instead:
+
+```diff
+- import { getCLS, getFID, getLCP } from 'web-vitals';
++ import { onCLS, onINP, onLCP } from 'web-vitals';
+```
+
+---
+
+### `INPMetric.entries` now scoped to the animation frame
+
+Previously, `INPMetric.entries` contained all `PerformanceEventTiming` entries with a matching `interactionId`, even if those entries were processed in different animation frames. In v4, `entries` only includes entries that were processed within the **same animation frame** as the INP candidate interaction.
+
+<Note>
+  This makes the entries array more accurate — it no longer includes event entries that did not contribute to the INP value.
+</Note>
+
+---
+
+### `INPAttribution` field renames
+
+Three properties on `INPAttribution` have been renamed for clarity:
+
+```diff
+  onINP((metric) => {
+    const { attribution } = metric;
+-   console.log(attribution.eventTarget);
++   console.log(attribution.interactionTarget);
+
+-   console.log(attribution.eventTime);
++   console.log(attribution.interactionTime);
+
+-   console.log(attribution.eventType);
++   console.log(attribution.interactionType);
+  });
+```
+
+`interactionType` will now always be either `"pointer"` or `"keyboard"`. Previously `eventType` could contain other values.
+
+The `eventEntry` property has also been removed in favour of the new `processedEventEntries` array:
+
+```diff
+  onINP((metric) => {
+    const { attribution } = metric;
+-   const entry = attribution.eventEntry;
++   const entries = attribution.processedEventEntries; // array
+  });
+```
+
+---
+
+### `LCPAttribution.resourceLoadTime` renamed to `resourceLoadDuration`
+
+```diff
+  onLCP((metric) => {
+    const { attribution } = metric;
+-   console.log(attribution.resourceLoadTime);
++   console.log(attribution.resourceLoadDuration);
+  });
+```
+
+---
+
+### `TTFBAttribution` fields renamed from `*Time` to `*Duration`
+
+All timing fields on `TTFBAttribution` have been renamed from a `*Time` suffix to `*Duration`:
+
+```diff
+  onTTFB((metric) => {
+    const { attribution } = metric;
+-   console.log(attribution.waitingTime);
++   console.log(attribution.waitingDuration);
+
+-   console.log(attribution.dnsTime);
++   console.log(attribution.dnsDuration);
+
+-   console.log(attribution.connectionTime);
++   console.log(attribution.connectionDuration);
+
+-   console.log(attribution.requestTime);
++   console.log(attribution.requestDuration);
+  });
+```
+
+Additionally, `waitingDuration` has been split. The portion of waiting time spent checking the HTTP cache is now exposed separately as `cacheDuration` (see [New features](#new-features-in-v4) below).
+
+---
+
+## New features in v4
+
+### INP breakdown timings
+
+`INPAttribution` now exposes three timing phases that break down the total INP duration:
+
+| Field | Description |
+|---|---|
+| `inputDelay` | Time from when the user interacted until the browser could first start processing event listeners. |
+| `processingDuration` | Time from when the first event listener started until all event listener processing finished. |
+| `presentationDelay` | Time from when the browser finished processing all event listeners until the next frame was presented on screen. |
+
+```js
+import { onINP } from 'web-vitals/attribution';
+
+onINP((metric) => {
+  const { inputDelay, processingDuration, presentationDelay } = metric.attribution;
+  console.log(`Input delay:        ${inputDelay}ms`);
+  console.log(`Processing:         ${processingDuration}ms`);
+  console.log(`Presentation delay: ${presentationDelay}ms`);
+});
+```
+
+<Check>
+  These three values sum to the total INP duration, making it straightforward to identify which phase is responsible for a slow interaction.
+</Check>
+
+### Additional INP attribution fields
+
+| Field | Description |
+|---|---|
+| `nextPaintTime` | Timestamp of the next paint after the interaction. |
+| `processedEventEntries` | Array of `event` entries processed within the same animation frame as the INP candidate. |
+| `longAnimationFrameEntries` | Any `long-animation-frame` entries that overlap with the INP candidate interaction. |
+| `interactionTargetElement` | The DOM element that received the interaction (added in v4.0.1). |
+
+### `TTFBAttribution.cacheDuration`
+
+The time spent checking the HTTP cache for a matching response is now reported separately:
+
+```js
+import { onTTFB } from 'web-vitals/attribution';
+
+onTTFB((metric) => {
+  console.log('Cache check time:', metric.attribution.cacheDuration);
+});
+```
+
+---
+
+## Deprecated APIs
+
+<Warning>
+  All deprecated APIs listed here were removed in v5. Plan to migrate before upgrading to v5.
+</Warning>
+
+### `onFID()` deprecated
+
+`onFID()` is deprecated as of v4. First Input Delay has been replaced by [Interaction to Next Paint](https://web.dev/articles/inp) (INP) as a Core Web Vital.
+
+```diff
+- import { onFID } from 'web-vitals';
+- onFID(console.log);
++ import { onINP } from 'web-vitals';
++ onINP(console.log);
+```
+
+### `ReportCallback` type deprecated
+
+The generic `ReportCallback` type has been deprecated in favour of using metric-specific types inline. Use the exact metric type in your callback signature instead:
+
+```diff
+- import type { ReportCallback } from 'web-vitals';
+- const handler: ReportCallback = (metric) => { ... };
++ import type { CLSMetric } from 'web-vitals';
++ const handler = (metric: CLSMetric) => { ... };
+```
+
+For a single handler that accepts any metric type, use the `MetricType` union:
+
+```typescript
+import type { MetricType } from 'web-vitals';
+
+const handler = (metric: MetricType) => {
+  console.log(metric.name, metric.value);
+};
+```

@@ -1,0 +1,100 @@
+---
+title: "onFCP() — First Contentful Paint function reference"
+description: "Measures when the browser first renders text or image content. Reports a DOMHighResTimeStamp in milliseconds. Supported in Chromium, Firefox, and Safari."
+---
+
+`onFCP()` calculates the [First Contentful Paint (FCP)](https://web.dev/articles/fcp) value for the current page and invokes your callback once the value is available. FCP measures the time from when the page starts loading to when any part of the page's content — text, images, canvas, or SVG — is first rendered to the screen. The reported value is a [`DOMHighResTimeStamp`](https://developer.mozilla.org/docs/Web/API/DOMHighResTimeStamp) in milliseconds, relative to the page's [activation start](https://www.w3.org/TR/navigation-timing-2/#dom-performancenavigationtiming-activationstart). A fast FCP reassures users that the page is loading; it does not wait for the page to be fully interactive.
+
+## Function signature
+
+```typescript
+function onFCP(callback: (metric: FCPMetric) => void, opts?: ReportOpts): void
+```
+
+## Parameters
+
+<ParamField body="callback" type="(metric: FCPMetric) => void" required>
+  Called once with an `FCPMetric` object as soon as the first contentful paint entry is available and the page was not hidden before it occurred.
+</ParamField>
+
+<ParamField body="opts.reportAllChanges" type="boolean">
+  Has no practical effect for FCP because FCP fires exactly once per page load. Included for API consistency with other metric functions. Defaults to `false`.
+</ParamField>
+
+## Return value
+
+`void`. As a side effect, `onFCP()` creates a `PerformanceObserver` that listens for `paint` entries. Call this function at most once per page load.
+
+## Metric object (FCPMetric)
+
+The callback receives an `FCPMetric` object with the following properties:
+
+<ResponseField name="name" type="string">
+  Always `'FCP'`.
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  A `DOMHighResTimeStamp` in milliseconds representing the time from navigation start (or activation start for prerendered pages) until first contentful paint.
+</ResponseField>
+
+<ResponseField name="rating" type="'good' | 'needs-improvement' | 'poor'">
+  Classification against the FCP thresholds (`FCPThresholds = [1800, 3000]`):
+
+  | Rating | Value |
+  | --- | --- |
+  | `good` | ≤ 1800 ms |
+  | `needs-improvement` | > 1800 ms and ≤ 3000 ms |
+  | `poor` | > 3000 ms |
+</ResponseField>
+
+<ResponseField name="entries" type="PerformancePaintTiming[]">
+  An array containing the single `paint` entry with `name === 'first-contentful-paint'` that was used to compute this value.
+</ResponseField>
+
+<ResponseField name="delta" type="number">
+  The difference between the current `value` and the last reported value. For FCP, `delta` always equals `value` because FCP is reported once.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  A unique identifier for this metric instance. A new `id` is generated after each back/forward cache restore.
+</ResponseField>
+
+<ResponseField name="navigationType" type="string">
+  The navigation type: `'navigate'`, `'reload'`, `'back-forward'`, `'back-forward-cache'`, `'prerender'`, or `'restore'`.
+</ResponseField>
+
+## Usage
+
+**Basic usage** — log FCP once the value is ready:
+
+```js
+import { onFCP } from 'web-vitals';
+
+onFCP(console.log);
+```
+
+**Send to an analytics endpoint:**
+
+```js
+import { onFCP } from 'web-vitals';
+
+function sendToAnalytics({ name, value, id }) {
+  navigator.sendBeacon('/analytics', JSON.stringify({ name, value, id }));
+}
+
+onFCP(sendToAnalytics);
+```
+
+## Behavior notes
+
+<Note>
+  FCP is not reported if the page was loaded in the background (i.e., the tab was already hidden before the first paint occurred). In that case, your callback will never be invoked.
+</Note>
+
+<Note>
+  For prerendered pages, FCP is measured relative to `activationStart` — the time the user first interacted with the prerendered page — rather than the navigation start time. If `activationStart` occurred after FCP, the reported value is clamped to `0`.
+</Note>
+
+## Browser support
+
+`onFCP()` is supported in **Chromium, Firefox, and Safari**.

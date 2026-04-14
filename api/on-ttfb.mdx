@@ -1,0 +1,117 @@
+---
+title: "onTTFB() — TTFB function reference for web-vitals"
+description: "Measures server response time from the page's time origin, covering DNS, connection, and server processing. Reports in milliseconds after page load."
+---
+
+`onTTFB()` calculates the [Time to First Byte (TTFB)](https://web.dev/articles/ttfb) value for the current page and invokes your callback after the page has fully loaded. TTFB measures the time from the page's [time origin](https://www.w3.org/TR/hr-time-2/#sec-time-origin) until the browser receives the first byte of the server response. Because it starts from the time origin, TTFB includes time spent on redirects, DNS lookup, TCP and TLS connection setup, and server processing. The reported value is a [`DOMHighResTimeStamp`](https://developer.mozilla.org/docs/Web/API/DOMHighResTimeStamp) in milliseconds. The function deliberately waits until after `load` to fire so that all properties of the `PerformanceNavigationTiming` entry are fully populated.
+
+## Function signature
+
+```typescript
+function onTTFB(callback: (metric: TTFBMetric) => void, opts?: ReportOpts): void
+```
+
+## Parameters
+
+<ParamField body="callback" type="(metric: TTFBMetric) => void" required>
+  Called once with a `TTFBMetric` object after the page finishes loading and the `navigation` performance entry is fully available.
+</ParamField>
+
+<ParamField body="opts.reportAllChanges" type="boolean">
+  Has no practical effect for TTFB because TTFB fires exactly once per page load. Included for API consistency with other metric functions. Defaults to `false`.
+</ParamField>
+
+## Return value
+
+`void`. As a side effect, `onTTFB()` reads the `PerformanceNavigationTiming` entry after page load. Call this function at most once per page load.
+
+## Metric object (TTFBMetric)
+
+The callback receives a `TTFBMetric` object with the following properties:
+
+<ResponseField name="name" type="string">
+  Always `'TTFB'`.
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  A `DOMHighResTimeStamp` in milliseconds representing `responseStart` relative to the page's time origin (or activation start for prerendered pages, clamped to `0`). Because TTFB starts from the time origin, it includes any redirect time in addition to DNS, connection, and server response time.
+</ResponseField>
+
+<ResponseField name="rating" type="'good' | 'needs-improvement' | 'poor'">
+  Classification against the TTFB thresholds (`TTFBThresholds = [800, 1800]`):
+
+  | Rating | Value |
+  | --- | --- |
+  | `good` | ≤ 800 ms |
+  | `needs-improvement` | > 800 ms and ≤ 1800 ms |
+  | `poor` | > 1800 ms |
+</ResponseField>
+
+<ResponseField name="entries" type="PerformanceNavigationTiming[]">
+  An array containing the single `navigation` entry used to compute the TTFB value. In browsers that do not support `PerformanceNavigationTiming`, this falls back to a synthesized entry derived from `performance.timing`.
+</ResponseField>
+
+<ResponseField name="delta" type="number">
+  The difference between the current `value` and the last reported value. For TTFB, `delta` always equals `value` because the metric is reported once.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  A unique identifier for this metric instance. A new `id` is generated after each back/forward cache restore.
+</ResponseField>
+
+<ResponseField name="navigationType" type="string">
+  The navigation type: `'navigate'`, `'reload'`, `'back-forward'`, `'back-forward-cache'`, `'prerender'`, or `'restore'`.
+</ResponseField>
+
+## Usage
+
+**Basic usage** — log the TTFB value after page load:
+
+```js
+import { onTTFB } from 'web-vitals';
+
+onTTFB(console.log);
+```
+
+**Isolate server request time** — subtract pre-request phases from TTFB to get the pure network + server time:
+
+```js
+import { onTTFB } from 'web-vitals';
+
+onTTFB((metric) => {
+  // Calculate the request time by subtracting from TTFB
+  // everything that happened prior to the request starting.
+  const requestTime = metric.value - metric.entries[0].requestStart;
+  console.log('Request time:', requestTime);
+});
+```
+
+**Send to an analytics endpoint:**
+
+```js
+import { onTTFB } from 'web-vitals';
+
+function sendToAnalytics({ name, value, id }) {
+  navigator.sendBeacon('/analytics', JSON.stringify({ name, value, id }));
+}
+
+onTTFB(sendToAnalytics);
+```
+
+## Behavior notes
+
+<Note>
+  `onTTFB()` deliberately waits until after the `load` event fires before calling your callback. This ensures that all properties of the `PerformanceNavigationTiming` entry — including `requestStart`, `responseStart`, server timing headers, and others — are fully populated and available for inspection.
+</Note>
+
+<Note>
+  In browsers that do not support `PerformanceNavigationTiming`, the library falls back to `performance.timing`, converting epoch timestamps to `DOMHighResTimeStamp` values. Code that accesses `metric.entries[0].requestStart` (as shown in the usage example) works the same way across all supported browsers.
+</Note>
+
+<Note>
+  TTFB starts from the page's time origin, so it includes redirect time. If you need to measure only the server processing and network response time, subtract `metric.entries[0].requestStart` from `metric.value` as shown in the example above.
+</Note>
+
+## Browser support
+
+`onTTFB()` is supported in **Chromium, Firefox, and Safari**.

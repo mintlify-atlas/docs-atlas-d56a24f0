@@ -1,0 +1,122 @@
+---
+title: "web-vitals builds: standard, attribution, and formats"
+description: "The web-vitals package ships two builds—standard and attribution—each available as ESM, UMD, and IIFE. Learn which format fits your project."
+---
+
+The `web-vitals` package includes both a "standard" build and an "attribution" build, and each build is distributed in three module formats (ESM, UMD, and IIFE). The standard build is the right choice for most projects: it is small (~2KB brotli'd) and contains everything you need to measure Core Web Vitals. The attribution build adds diagnostic data to each metric callback to help you trace the root cause of poor scores—useful when you need to act on field data.
+
+## Standard build vs attribution build
+
+Both builds expose the same metric functions (`onCLS`, `onFCP`, `onINP`, `onLCP`, `onTTFB`) and can be used interchangeably as drop-in replacements.
+
+<Note>
+  The standard build is approximately **~2KB brotli'd**. The attribution build is approximately **~3.5KB brotli'd**—about 1.5KB larger because it bundles additional diagnostic data for each metric. Only use the attribution build if you are actively reading the `attribution` property on metric objects.
+</Note>
+
+The key difference is that metric callbacks in the attribution build receive a `MetricWithAttribution` object instead of a plain `Metric` object. The `attribution` property on that object contains contextual debugging information—such as which element caused a layout shift (CLS), which interaction caused a long delay (INP), or the LCP element and its resource timing (LCP).
+
+Switching between builds is a one-line change:
+
+```js
+// Standard build
+import {onLCP, onINP, onCLS} from 'web-vitals';
+
+// Attribution build — same API, extra `attribution` property on each metric
+import {onLCP, onINP, onCLS} from 'web-vitals/attribution';
+```
+
+## Available build formats
+
+All files are located in the `dist/` directory of the npm package.
+
+<Tabs>
+  <Tab title="Standard">
+    | Filename | Format | `package.json` field |
+    |---|---|---|
+    | `web-vitals.js` | ES module (ESM) | `pkg.module` |
+    | `web-vitals.umd.cjs` | UMD / CommonJS | `pkg.main` |
+    | `web-vitals.iife.js` | IIFE (classic `<script>`) | `pkg.unpkg` |
+  </Tab>
+  <Tab title="Attribution">
+    | Filename | Format | `package.json` field |
+    |---|---|---|
+    | `web-vitals.attribution.js` | ES module (ESM) | — |
+    | `web-vitals.attribution.umd.cjs` | UMD / CommonJS | — |
+    | `web-vitals.attribution.iife.js` | IIFE (classic `<script>`) | — |
+  </Tab>
+</Tabs>
+
+The ESM builds are tree-shakable and are what bundlers (webpack, Rollup, esbuild, Vite) resolve by default when you `import` from `web-vitals`. The UMD build is exposed on the `self.webVitals.*` namespace. The IIFE build is also exposed on `self.webVitals.*` and is suitable for classic `<script>` tags where ES module syntax is unavailable.
+
+## Which build is right for you?
+
+<AccordionGroup>
+  <Accordion title="Using a bundler (webpack, Rollup, esbuild, Vite)">
+    Import directly from the `web-vitals` package. Your bundler resolves `pkg.module` (`dist/web-vitals.js`) automatically, giving you an ES module with tree-shaking.
+
+    ```js
+    import {onLCP, onINP, onCLS} from 'web-vitals';
+    ```
+
+    Only the functions you import will be included in your final bundle.
+  </Accordion>
+  <Accordion title="Need attribution or debug data">
+    Switch the import path from `web-vitals` to `web-vitals/attribution`. The API is identical; each metric callback receives an extra `attribution` object.
+
+    ```js
+    import {onLCP, onINP, onCLS} from 'web-vitals/attribution';
+
+    onLCP((metric) => {
+      // metric.attribution contains LCP diagnostic data
+      console.log(metric.attribution.target, metric.attribution.url);
+    });
+    ```
+  </Accordion>
+  <Accordion title="Adding via a classic &lt;script&gt; tag">
+    Use the IIFE build. All public methods are available on the `webVitals` global namespace after the script loads.
+
+    ```html
+    <script>
+      (function () {
+        var script = document.createElement('script');
+        script.src = 'https://unpkg.com/web-vitals@5/dist/web-vitals.iife.js';
+        script.onload = function () {
+          webVitals.onCLS(console.log);
+          webVitals.onINP(console.log);
+          webVitals.onLCP(console.log);
+        };
+        document.head.appendChild(script);
+      })();
+    </script>
+    ```
+  </Accordion>
+  <Accordion title="Older CommonJS project">
+    Use the UMD build. When loaded via `require()`, the UMD build exposes the same functions as a CommonJS module. Your bundler selects `dist/web-vitals.umd.cjs` automatically when it sees a `require` call.
+
+    ```js
+    const {onLCP, onINP, onCLS} = require('web-vitals');
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Importing individual modules (tree-shaking)
+
+When using a bundler you can also import each metric function from its own module path. This is the most tree-shake-friendly approach because no barrel file is involved:
+
+```js
+import {onCLS} from 'web-vitals/onCLS.js';
+import {onINP} from 'web-vitals/onINP.js';
+import {onLCP} from 'web-vitals/onLCP.js';
+```
+
+Attribution variants follow the same pattern:
+
+```js
+import {onCLS} from 'web-vitals/attribution/onCLS.js';
+import {onINP} from 'web-vitals/attribution/onINP.js';
+import {onLCP} from 'web-vitals/attribution/onLCP.js';
+```
+
+<Tip>
+  For most projects using a modern bundler, importing from `'web-vitals'` or `'web-vitals/attribution'` is the simplest and recommended approach. Bundlers resolve the ES module entry point automatically and tree-shake unused exports.
+</Tip>

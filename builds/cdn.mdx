@@ -1,0 +1,167 @@
+---
+title: "Load web-vitals from a CDN or self-host the bundle"
+description: "Load web-vitals via a CDN using script tags—unpkg, jsDelivr, or cdnjs—when you don't have an npm build pipeline. Covers module and classic script patterns."
+---
+
+If you do not have an npm-based build pipeline, you can load `web-vitals` directly from a CDN using `<script>` tags. Both the standard and attribution builds are available as ES modules (via `<script type="module">`) and as IIFE bundles (via classic `<script>` tags). The following examples use [unpkg.com](https://unpkg.com), but the library is also available on [jsDelivr](https://www.jsdelivr.com/package/npm/web-vitals) and [cdnjs](https://cdnjs.com/libraries/web-vitals).
+
+<Warning>
+  unpkg.com, jsDelivr, and cdnjs are shown here as examples only. These CDNs are not affiliated with Google, and there are no guarantees that loading the library from them will continue to work in the future. **Self-hosting the built files is strongly recommended** for security, reliability, and performance.
+</Warning>
+
+## Load the standard build (module script)
+
+Use `<script type="module">` with a regular `import` statement. Append `?module` to the unpkg URL to receive the ES module version of the package.
+
+<Note>
+  The `?module` query parameter tells unpkg to serve the file referenced by the `module` field in `package.json` (`dist/web-vitals.js`) rather than the default `main` field. Without it, unpkg serves the UMD/CJS bundle, which cannot be used with `import`.
+</Note>
+
+```html
+<!-- Append the `?module` param to load the module version of `web-vitals` -->
+<script type="module">
+  import {onCLS, onINP, onLCP} from 'https://unpkg.com/web-vitals@5?module';
+
+  onCLS(console.log);
+  onINP(console.log);
+  onLCP(console.log);
+</script>
+```
+
+## Load the standard build (classic script)
+
+For environments that cannot use ES module syntax, dynamically inject the IIFE build. After the script loads, all public methods are available on the `webVitals` global namespace (`self.webVitals.*`).
+
+```html
+<script>
+  (function () {
+    var script = document.createElement('script');
+    script.src = 'https://unpkg.com/web-vitals@5/dist/web-vitals.iife.js';
+    script.onload = function () {
+      // When loading `web-vitals` using a classic script, all the public
+      // methods can be found on the `webVitals` global namespace.
+      webVitals.onCLS(console.log);
+      webVitals.onINP(console.log);
+      webVitals.onLCP(console.log);
+    };
+    document.head.appendChild(script);
+  })();
+</script>
+```
+
+## Load the attribution build (module script)
+
+To load the attribution build as an ES module, point the import at `web-vitals.attribution.js` and add the `?module` parameter.
+
+```html
+<!-- Append the `?module` param to load the module version of `web-vitals` -->
+<script type="module">
+  import {
+    onCLS,
+    onINP,
+    onLCP,
+  } from 'https://unpkg.com/web-vitals@5/dist/web-vitals.attribution.js?module';
+
+  onCLS(console.log);
+  onINP(console.log);
+  onLCP(console.log);
+</script>
+```
+
+## Load the attribution build (classic script)
+
+Use the IIFE version of the attribution build for classic script loading. Methods are available on the same `webVitals` global after the script loads.
+
+```html
+<script>
+  (function () {
+    var script = document.createElement('script');
+    script.src =
+      'https://unpkg.com/web-vitals@5/dist/web-vitals.attribution.iife.js';
+    script.onload = function () {
+      // When loading `web-vitals` using a classic script, all the public
+      // methods can be found on the `webVitals` global namespace.
+      webVitals.onCLS(console.log);
+      webVitals.onINP(console.log);
+      webVitals.onLCP(console.log);
+    };
+    document.head.appendChild(script);
+  })();
+</script>
+```
+
+## CDN URLs across providers
+
+The same files are available from jsDelivr and cdnjs. Use whichever CDN fits your existing infrastructure if you cannot yet self-host.
+
+<CodeGroup>
+
+```html unpkg (module script)
+<script type="module">
+  import {onCLS, onINP, onLCP} from 'https://unpkg.com/web-vitals@5?module';
+  onCLS(console.log);
+  onINP(console.log);
+  onLCP(console.log);
+</script>
+```
+
+```html jsDelivr (module script)
+<script type="module">
+  import {onCLS, onINP, onLCP} from 'https://cdn.jsdelivr.net/npm/web-vitals@5/dist/web-vitals.js';
+  onCLS(console.log);
+  onINP(console.log);
+  onLCP(console.log);
+</script>
+```
+
+```html cdnjs (classic script)
+<script>
+  (function () {
+    var script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/web-vitals/5.2.0/web-vitals.iife.js';
+    script.onload = function () {
+      webVitals.onCLS(console.log);
+      webVitals.onINP(console.log);
+      webVitals.onLCP(console.log);
+    };
+    document.head.appendChild(script);
+  })();
+</script>
+```
+
+</CodeGroup>
+
+## Self-hosting the library
+
+Self-hosting avoids any dependency on a third-party CDN, giving you full control over availability, versioning, and caching headers.
+
+1. Install the package from npm:
+
+   ```bash
+   npm install web-vitals
+   ```
+
+2. Copy the built files from `node_modules/web-vitals/dist/` to your own static asset directory:
+
+   ```bash
+   cp node_modules/web-vitals/dist/web-vitals.iife.js public/js/web-vitals.iife.js
+   ```
+
+3. Reference the file with a path on your own domain:
+
+   ```html
+   <script>
+     (function () {
+       var script = document.createElement('script');
+       script.src = '/js/web-vitals.iife.js';
+       script.onload = function () {
+         webVitals.onCLS(console.log);
+         webVitals.onINP(console.log);
+         webVitals.onLCP(console.log);
+       };
+       document.head.appendChild(script);
+     })();
+   </script>
+   ```
+
+The full list of files available in `dist/` is documented in [Build options and formats](/builds/overview).

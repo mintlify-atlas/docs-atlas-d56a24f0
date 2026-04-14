@@ -1,28 +1,11 @@
 {
-  "$schema": "https://mintlify.com/docs.json",
-  "name": "web-vitals",
+  "projectType": "sdk-library",
+  "projectName": "web-vitals",
+  "projectDescription": "A tiny, modular JavaScript library for measuring Core Web Vitals and other performance metrics on real users, accurately matching Chrome's measurement methodology.",
   "theme": "luma",
-  "colors": {
-    "primary": "#5c646c",
-    "light": "#0766fc",
-    "dark": "#cb8dfc"
-  },
-  "favicon": "https://media.brand.dev/b6a607ad-1197-4851-a947-61a982c50e73.png",
-  "logo": {
-    "light": "https://media.brand.dev/36180a6e-fbf3-4051-967b-5a770772a7bf.svg",
-    "dark": "https://media.brand.dev/36180a6e-fbf3-4051-967b-5a770772a7bf.svg"
-  },
-  "navbar": {
-    "primary": {
-      "type": "github",
-      "href": "https://github.com/GoogleChrome/web-vitals"
-    }
-  },
-  "footer": {
-    "socials": {
-      "github": "https://github.com/GoogleChrome/web-vitals"
-    }
-  },
+  "primaryColor": "#5c646c",
+  "lightColor": "#0766fc",
+  "darkColor": "#cb8dfc",
   "navigation": {
     "tabs": [
       {
@@ -83,5 +66,41 @@
         ]
       }
     ]
-  }
+  },
+  "keyFeatures": [
+    "Measures all Core Web Vitals: CLS, INP, and LCP",
+    "Supports additional metrics: FCP and TTFB",
+    "Attribution build for diagnosing performance root causes",
+    "Tiny (~2KB brotli'd) and tree-shakeable",
+    "Matches Chrome's measurement methodology exactly",
+    "Back/forward cache (bfcache) support",
+    "Works with npm or CDN loading",
+    "Full TypeScript type definitions"
+  ],
+  "publicApiSurface": [
+    "onCLS(callback, opts?)",
+    "onFCP(callback, opts?)",
+    "onINP(callback, opts?)",
+    "onLCP(callback, opts?)",
+    "onTTFB(callback, opts?)",
+    "CLSThresholds",
+    "FCPThresholds",
+    "INPThresholds",
+    "LCPThresholds",
+    "TTFBThresholds",
+    "Metric",
+    "CLSMetric",
+    "FCPMetric",
+    "INPMetric",
+    "LCPMetric",
+    "TTFBMetric",
+    "ReportOpts",
+    "INPReportOpts",
+    "AttributionReportOpts",
+    "CLSAttribution",
+    "FCPAttribution",
+    "INPAttribution",
+    "LCPAttribution",
+    "TTFBAttribution"
+  ]
 }

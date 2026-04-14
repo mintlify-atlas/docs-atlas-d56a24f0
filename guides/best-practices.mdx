@@ -1,0 +1,134 @@
+---
+title: "Best practices for implementing web-vitals correctly"
+description: "Key best practices for web-vitals: deferred loading, single-call rule, bfcache handling, iframe limitations, and delta aggregation for cumulative metrics."
+---
+
+Getting accurate Web Vitals measurements requires more than importing the library and wiring up a callback. The browser APIs that underpin these metrics have specific timing requirements, lifecycle behaviors, and edge cases that can lead to missing data, double-counting, or incorrect values if not handled correctly. This guide covers the most important implementation considerations.
+
+## Load the library after user-impacting code
+
+Unlike many performance libraries, `web-vitals` does not need to load early. It uses the `buffered` flag for `PerformanceObserver`, which gives it access to all performance entries that occurred before the library was initialized—including those that happened before the observer was registered.
+
+This means you can safely defer loading `web-vitals` until after all user-impacting code (e.g. above-the-fold rendering, critical scripts) has run, without losing any metric data.
+
+```js
+// It is safe to import web-vitals lazily.
+// Buffered entries ensure no data is lost.
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+onCLS(console.log);
+onINP(console.log);
+onLCP(console.log);
+```
+
+<Tip>
+  In bundled applications, you can use dynamic `import()` to load `web-vitals` after the initial render. In non-module environments, load the script with the `defer` or `async` attribute. Either way, you will still receive complete, accurate metric values.
+</Tip>
+
+## Call each function only once
+
+Each call to `onCLS`, `onINP`, `onLCP`, `onFCP`, or `onTTFB` creates a new `PerformanceObserver` instance and registers event listeners that remain active for the entire lifetime of the page.
+
+<Warning>
+  Do not call any Web Vitals function more than once per page load. Calling them multiple times—for example in a component that mounts and unmounts—will register duplicate observers and listeners. Over time this can cause a memory leak and result in inflated or duplicated metric reports.
+</Warning>
+
+Call each function once, at module level or during initial application setup:
+
+```js
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+// Call once, at the top level—not inside components or event handlers.
+onCLS(sendToAnalytics);
+onINP(sendToAnalytics);
+onLCP(sendToAnalytics);
+```
+
+## Handle the back/forward cache
+
+When a page is restored from the [back/forward cache (bfcache)](https://web.dev/articles/bfcache), the browser effectively creates a new page visit. The `web-vitals` library treats bfcache restores as separate page visits: each restored page gets a new metric instance with a new `id`.
+
+You can distinguish bfcache-restored pages from regular navigations using the `navigationType` property on the metric object:
+
+```js
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+function sendToAnalytics(metric) {
+  const isBFCacheRestore = metric.navigationType === 'back-forward-cache';
+
+  // Tag bfcache restores separately if needed by your analytics setup.
+  const body = JSON.stringify({
+    name: metric.name,
+    value: metric.value,
+    id: metric.id,
+    navigationType: metric.navigationType,
+    isBFCacheRestore,
+  });
+
+  navigator.sendBeacon('/analytics', body);
+}
+
+onCLS(sendToAnalytics);
+onINP(sendToAnalytics);
+onLCP(sendToAnalytics);
+```
+
+<Note>
+  Because bfcache restores generate new metric `id` values, your backend will receive them as distinct page visits. This is the correct behavior—a bfcache restore is a separate user-perceived page load.
+</Note>
+
+## Understand reporting timing
+
+Each metric fires at a different point in the page lifecycle. Understanding when to expect your callback to be called prevents confusion when debugging.
+
+| Metric | When the callback fires |
+|---|---|
+| **TTFB** | Once, after the page has fully loaded (to ensure the navigation entry is fully populated). |
+| **FCP** | Once, shortly after the first contentful paint occurs. |
+| **LCP** | Potentially multiple times as larger elements are found; finalized when the user interacts or the page is hidden. |
+| **CLS** | When the page's `visibilityState` changes to `hidden`, and after each visibility change thereafter. May be called multiple times. |
+| **INP** | When the page is hidden, if the INP value has changed since last reported. Requires at least one user interaction to fire. |
+
+<Note>
+  If you open a page and immediately check your console without interacting with it or switching tabs, you may not see INP or CLS reports. Try switching to another tab and back, or reloading with [preserve log](https://developer.chrome.com/docs/devtools/console/reference/#persist) enabled.
+</Note>
+
+## Use the delta for cumulative metrics
+
+CLS and INP can both be reported multiple times during a single page visit—for example, CLS fires each time the page becomes hidden, and INP updates whenever a new worst interaction is observed. If your analytics backend does not support overwriting events, naively summing the reported values will double-count.
+
+Use the `id` and `delta` properties to handle this correctly. The `delta` is the change since the last report for the same metric instance. Sum all deltas with a matching `id` to recover the true cumulative value:
+
+```js
+import {onCLS, onINP} from 'web-vitals';
+
+function logDelta({name, id, delta}) {
+  console.log(`${name} matching ID ${id} changed by ${delta}`);
+}
+
+onCLS(logDelta);
+onINP(logDelta);
+```
+
+<Tip>
+  The first time a callback fires, `delta` and `value` are always equal. Using `delta` consistently is safe for all metrics, not just cumulative ones, and makes your reporting logic uniform.
+</Tip>
+
+## Know the iframe limitation
+
+The Web APIs that underpin `web-vitals` have no visibility into `<iframe>` content—not even same-origin iframes. If your page embeds iframes (such as ads, embeds, or third-party widgets), the metrics collected by this library will not include any layout shifts, interactions, or rendering caused by content inside those iframes.
+
+<Warning>
+  Because of this limitation, `onCLS()` technically measures DCLS (Document Cumulative Layout Shift) rather than CLS when the page includes iframes. The values reported by `web-vitals` may differ from those reported by the Chrome User Experience Report (CrUX), which does account for iframe content.
+</Warning>
+
+For same-origin iframes, it is possible to measure metrics inside the iframe by loading `web-vitals` in the iframe document and using `postMessage` to forward results to the parent frame for aggregation. Cross-origin iframes cannot be instrumented this way.
+
+<CardGroup cols={2}>
+  <Card title="Attribution data" icon="magnifying-glass" href="/guides/attribution">
+    Add root-cause diagnostic context to your metric reports using the attribution build.
+  </Card>
+  <Card title="API reference" icon="code" href="/api/metric">
+    Full reference for the Metric type, all function signatures, and rating thresholds.
+  </Card>
+</CardGroup>

@@ -1,0 +1,203 @@
+---
+title: "Debug poor Web Vitals scores with attribution data"
+description: "Use the web-vitals attribution build to get root-cause diagnostic data for poor CLS, INP, LCP, FCP, and TTFB scores from real users in the field."
+---
+
+Knowing that a metric score is poor tells you there is a problem, but not where to look. The attribution build of `web-vitals` adds diagnostic context to every metric report—things like which DOM element caused a layout shift, which interaction triggered a slow INP, or how long each phase of an LCP resource load took. This extra context is roughly 1.5 KB brotli'd on top of the standard build, so it is worth enabling only when you are actively collecting field data for debugging purposes.
+
+## Using the attribution build
+
+Switching to the attribution build is a single import change. All function signatures remain identical, so it is a drop-in replacement:
+
+```js
+// Before (standard build)
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+// After (attribution build)
+import {onCLS, onINP, onLCP} from 'web-vitals/attribution';
+```
+
+Once you import from `web-vitals/attribution`, the metric object passed to your callback gains an additional `attribution` property containing the diagnostic data for that metric.
+
+<Note>
+  The attribution build exports the same functions and types as the standard build, including `onFCP`, `onTTFB`, and all rating threshold constants. You can safely replace the entire import path without changing any other code.
+</Note>
+
+## CLS attribution
+
+The `CLSAttribution` object identifies which element was responsible for the largest individual layout shift contributing to the page's CLS score.
+
+| Property | Description |
+|---|---|
+| `largestShiftTarget` | A CSS selector string for the element that shifted the most in the largest layout shift. |
+| `largestShiftTime` | The timestamp when the largest layout shift occurred. |
+| `largestShiftValue` | The layout shift score of the largest single shift event. |
+| `largestShiftEntry` | The raw `LayoutShift` entry for deeper inspection. |
+| `largestShiftSource` | The first `LayoutShiftAttribution` source in the largest shift. |
+| `loadState` | The document load state at the time the shift occurred (`loading`, `dom-interactive`, `dom-content-loaded`, or `complete`). |
+
+```js
+import {onCLS} from 'web-vitals/attribution';
+
+onCLS((metric) => {
+  const {largestShiftTarget, largestShiftTime, largestShiftValue, loadState} =
+    metric.attribution;
+
+  console.log('CLS caused by:', largestShiftTarget);
+  console.log('Shift occurred at:', largestShiftTime, 'ms');
+  console.log('Shift score:', largestShiftValue);
+  console.log('Document state at shift:', loadState);
+});
+```
+
+<Tip>
+  The `loadState` value is especially useful for diagnosing CLS. Shifts that occur during `loading` or `dom-interactive` are often caused by images without explicit dimensions or late-injected content, whereas shifts during `complete` usually point to dynamically injected ads or embeds.
+</Tip>
+
+## INP attribution
+
+The `INPAttribution` object breaks down the three phases of an interaction: the delay before the browser could begin processing the event, the time spent running event handlers, and the delay before the next frame was painted.
+
+| Property | Description |
+|---|---|
+| `interactionTarget` | A CSS selector for the element the user interacted with. |
+| `interactionType` | Either `'pointer'` (clicks, taps) or `'keyboard'`. |
+| `inputDelay` | Time from user interaction to when the browser started processing event listeners. Indicates main-thread congestion. |
+| `processingDuration` | Time spent running all event listeners for the interaction. |
+| `presentationDelay` | Time from when event handlers finished until the next frame was painted. Indicates rendering work. |
+| `loadState` | The document load state when the interaction occurred. |
+| `longAnimationFrameEntries` | Any Long Animation Frame (LoAF) entries that intersect the interaction, for detailed script-level analysis. |
+| `longestScript` | Summary of the longest script entry within the INP duration, including which subpart it ran in. |
+
+```js
+import {onINP} from 'web-vitals/attribution';
+
+onINP((metric) => {
+  const {
+    interactionTarget,
+    interactionType,
+    inputDelay,
+    processingDuration,
+    presentationDelay,
+    loadState,
+    longAnimationFrameEntries,
+  } = metric.attribution;
+
+  console.log('INP interaction on:', interactionTarget);
+  console.log('Interaction type:', interactionType);
+  console.log('Input delay:', inputDelay, 'ms');
+  console.log('Processing duration:', processingDuration, 'ms');
+  console.log('Presentation delay:', presentationDelay, 'ms');
+  console.log('Document state:', loadState);
+
+  if (longAnimationFrameEntries.length) {
+    console.log('Long Animation Frames:', longAnimationFrameEntries);
+  }
+});
+```
+
+<Note>
+  The `processedEventEntries` array contains all event timing entries that occurred within the same animation frame as the INP interaction. It can be large. If you do not need it, pass `{includeProcessedEventEntries: false}` as the options argument to reduce memory usage.
+</Note>
+
+## LCP attribution
+
+The `LCPAttribution` object maps the LCP time into four sequential sub-phases, each of which points to a specific optimization opportunity.
+
+| Property | Description |
+|---|---|
+| `target` | A CSS selector for the LCP element. |
+| `url` | The URL of the LCP image resource, if applicable. Not set for text-based LCP. |
+| `timeToFirstByte` | Time from navigation start to the first byte of the HTML response (TTFB). |
+| `resourceLoadDelay` | Time between TTFB and when the browser began loading the LCP resource. |
+| `resourceLoadDuration` | Time to fully download the LCP resource. |
+| `elementRenderDelay` | Time from when the resource finished loading until the element was rendered. |
+| `navigationEntry` | The full `PerformanceNavigationTiming` entry, useful for accessing `serverTiming`. |
+| `lcpResourceEntry` | The `PerformanceResourceTiming` entry for the LCP resource, if applicable. |
+
+```js
+import {onLCP} from 'web-vitals/attribution';
+
+onLCP((metric) => {
+  const {
+    target,
+    url,
+    timeToFirstByte,
+    resourceLoadDelay,
+    resourceLoadDuration,
+    elementRenderDelay,
+  } = metric.attribution;
+
+  console.log('LCP element:', target);
+  if (url) console.log('LCP resource URL:', url);
+  console.log('TTFB:', timeToFirstByte, 'ms');
+  console.log('Resource load delay:', resourceLoadDelay, 'ms');
+  console.log('Resource load duration:', resourceLoadDuration, 'ms');
+  console.log('Element render delay:', elementRenderDelay, 'ms');
+});
+```
+
+<Tip>
+  The four LCP sub-phases always sum to the total LCP value. Whichever phase is largest is your highest-leverage optimization target. A large `timeToFirstByte` points to server or network issues; a large `resourceLoadDelay` often means the resource was discovered late (e.g. not preloaded); a large `elementRenderDelay` can indicate render-blocking scripts or client-side rendering overhead.
+</Tip>
+
+## FCP and TTFB attribution
+
+FCP and TTFB attribution provide timing breakdowns that help diagnose early-load bottlenecks.
+
+**FCP attribution** (`FCPAttribution`) reports:
+- `timeToFirstByte` — TTFB, the time before any content can be received.
+- `firstByteToFCP` — the delta between TTFB and the first contentful paint, covering render-blocking resources.
+- `loadState` — the document state when FCP occurred.
+
+**TTFB attribution** (`TTFBAttribution`) breaks the TTFB value into five sequential phases:
+- `waitingDuration` — time before the request started (including redirects and browser overhead).
+- `cacheDuration` — time spent checking the HTTP cache or service worker.
+- `dnsDuration` — DNS resolution time.
+- `connectionDuration` — TCP and TLS negotiation time.
+- `requestDuration` — network round-trip time plus server processing time.
+
+```js
+import {onFCP, onTTFB} from 'web-vitals/attribution';
+
+onFCP((metric) => {
+  const {timeToFirstByte, firstByteToFCP, loadState} = metric.attribution;
+  console.log('FCP TTFB:', timeToFirstByte, 'ms');
+  console.log('FCP delta after TTFB:', firstByteToFCP, 'ms');
+  console.log('Load state at FCP:', loadState);
+});
+
+onTTFB((metric) => {
+  const {waitingDuration, cacheDuration, dnsDuration, connectionDuration, requestDuration} =
+    metric.attribution;
+  console.log('Waiting:', waitingDuration, 'ms');
+  console.log('Cache:', cacheDuration, 'ms');
+  console.log('DNS:', dnsDuration, 'ms');
+  console.log('Connection:', connectionDuration, 'ms');
+  console.log('Request:', requestDuration, 'ms');
+});
+```
+
+## Custom target generation
+
+By default, the attribution build generates CSS selector strings to identify elements (e.g. `"section > img.hero"`). If your pages use a custom attribute like `data-name` for element identification, you can provide a `generateTarget` function to produce more readable labels.
+
+```js
+import {onLCP} from 'web-vitals/attribution';
+
+function customGenerateTarget(el) {
+  if (el.dataset.name) {
+    return el.dataset.name;
+  }
+
+  // Otherwise use default selector function
+}
+
+onLCP(sendToAnalytics, {generateTarget: customGenerateTarget});
+```
+
+The `generateTarget` option is supported by `onCLS`, `onINP`, and `onLCP`. When your function returns `null` or `undefined`, the library falls back to the built-in CSS selector.
+
+<Tip>
+  Custom target strings are generated at the time the element is observed, not at report time. This matters for elements that may be removed from the DOM before the metric is reported, such as LCP images removed after the initial load.
+</Tip>

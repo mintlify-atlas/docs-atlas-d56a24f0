@@ -1,0 +1,116 @@
+---
+title: "onLCP() — Largest Contentful Paint API reference"
+description: "Measures loading performance by timing when the largest visible element renders. Reports a DOMHighResTimeStamp in ms. Chromium, Firefox, and Safari."
+---
+
+`onLCP()` calculates the [Largest Contentful Paint (LCP)](https://web.dev/articles/lcp) value for the current page and invokes your callback once the value is finalized. LCP is a [Core Web Vital](https://web.dev/articles/vitals#core_web_vitals) that measures how quickly the main content of a page becomes visible — specifically, the render time of the largest image or text block visible in the viewport. The reported value is a [`DOMHighResTimeStamp`](https://developer.mozilla.org/docs/Web/API/DOMHighResTimeStamp) in milliseconds. The metric is finalized on the first trusted user interaction (click or key press) or when `visibilityState` changes to `hidden`, whichever comes first, because user input signals that the user is no longer waiting for content to appear.
+
+## Function signature
+
+```typescript
+function onLCP(callback: (metric: LCPMetric) => void, opts?: ReportOpts): void
+```
+
+## Parameters
+
+<ParamField body="callback" type="(metric: LCPMetric) => void" required>
+  Called with an `LCPMetric` object once the LCP value is finalized, or — when `reportAllChanges` is `true` — each time a new LCP candidate is observed.
+</ParamField>
+
+<ParamField body="opts.reportAllChanges" type="boolean">
+  When `true`, the callback fires for every new `largest-contentful-paint` performance entry dispatched by the browser, allowing you to track all LCP candidates as they are identified. The final reported value is the same regardless of this option. Defaults to `false`.
+</ParamField>
+
+## Return value
+
+`void`. As a side effect, `onLCP()` creates a `PerformanceObserver` that listens for `largest-contentful-paint` entries. The observer is automatically disconnected once the metric finalizes. Call this function at most once per page load.
+
+## Metric object (LCPMetric)
+
+The callback receives an `LCPMetric` object with the following properties:
+
+<ResponseField name="name" type="string">
+  Always `'LCP'`.
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  A `DOMHighResTimeStamp` in milliseconds representing the render time of the largest contentful element visible in the viewport at the time the metric was finalized. For prerendered pages this is relative to `activationStart`, clamped to `0` if `activationStart` occurred after LCP.
+</ResponseField>
+
+<ResponseField name="rating" type="'good' | 'needs-improvement' | 'poor'">
+  Classification against the LCP thresholds (`LCPThresholds = [2500, 4000]`):
+
+  | Rating | Value |
+  | --- | --- |
+  | `good` | ≤ 2500 ms |
+  | `needs-improvement` | > 2500 ms and ≤ 4000 ms |
+  | `poor` | > 4000 ms |
+</ResponseField>
+
+<ResponseField name="entries" type="LargestContentfulPaint[]">
+  An array containing the single `largest-contentful-paint` entry that corresponds to the final LCP value. When `reportAllChanges` is `true`, intermediate reports may reference earlier candidate entries.
+</ResponseField>
+
+<ResponseField name="delta" type="number">
+  The difference between the current `value` and the last reported value. On the first report, `delta` equals `value`. Use `delta` when your analytics provider does not support overwriting previously sent values.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  A unique identifier for this metric instance. A new `id` is generated after each back/forward cache restore.
+</ResponseField>
+
+<ResponseField name="navigationType" type="string">
+  The navigation type: `'navigate'`, `'reload'`, `'back-forward'`, `'back-forward-cache'`, `'prerender'`, or `'restore'`.
+</ResponseField>
+
+## Usage
+
+**Basic usage** — log the final LCP value:
+
+```js
+import { onLCP } from 'web-vitals';
+
+onLCP(console.log);
+```
+
+**Track all LCP candidates** — useful for understanding how LCP evolves as more content loads:
+
+```js
+import { onLCP } from 'web-vitals';
+
+onLCP(console.log, { reportAllChanges: true });
+```
+
+**Send to an analytics endpoint:**
+
+```js
+import { onLCP } from 'web-vitals';
+
+function sendToAnalytics({ name, value, id, delta }) {
+  navigator.sendBeacon('/analytics', JSON.stringify({ name, value, id, delta }));
+}
+
+onLCP(sendToAnalytics);
+```
+
+## Behavior notes
+
+<Note>
+  LCP observation stops on the first trusted user interaction (a `click` or `keydown` event) or when the page's `visibilityState` changes to `hidden`. Until one of those events occurs, the LCP candidate may be updated as larger elements finish rendering.
+</Note>
+
+<Note>
+  When `reportAllChanges` is `true`, the callback fires for each new LCP candidate the browser dispatches. Each successive candidate represents a larger element that rendered later. The final call before user input or page hide represents the definitive LCP value.
+</Note>
+
+<Warning>
+  LCP is not reported if the page was loaded in the background (i.e., the tab was already hidden before any LCP candidate was observed). In that case, your callback will never be invoked.
+</Warning>
+
+<Warning>
+  Do not call `onLCP()` more than once per page load. Each call registers a new `PerformanceObserver` and attaches event listeners for the lifetime of the page. Repeated calls on the same page will cause a memory leak.
+</Warning>
+
+## Browser support
+
+`onLCP()` is supported in **Chromium, Firefox, and Safari**.

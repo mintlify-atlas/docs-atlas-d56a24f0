@@ -1,0 +1,208 @@
+---
+title: "Upgrade guide: web-vitals v4 to v5 breaking changes"
+description: "v5 removes onFID(), tightens browser support to Baseline Widely Available, and adds custom target generation and extended INP LoAF attribution."
+---
+
+Version 5.0.0 was released on 2025-05-07. It removes the long-deprecated `onFID()` function, shifts the browser support policy to [Baseline Widely Available](https://web.dev/baseline) APIs, and delivers richer INP attribution data via Long Animation Frame (LoAF) entries. Most users will only need to remove any remaining `onFID()` calls — the rest of the changes are confined to the attribution build.
+
+## Breaking changes
+
+### `onFID()` removed
+
+`onFID()` was deprecated in v4 and has been fully removed in v5. First Input Delay was officially replaced by Interaction to Next Paint (INP) as a Core Web Vital in March 2024.
+
+<Warning>
+  Any call to `onFID()` will throw a runtime error in v5. Remove all usages before upgrading.
+</Warning>
+
+```diff
+- import { onFID } from 'web-vitals';
+- onFID(console.log);
+```
+
+If you still need to measure user interaction latency, use `onINP()` instead:
+
+```js
+import { onINP } from 'web-vitals';
+
+onINP(console.log);
+```
+
+---
+
+### Browser support policy changed
+
+All builds in v5 use only [Baseline Widely Available](https://web.dev/baseline) APIs. This means the library targets browsers released within the last few years and no longer includes workarounds for legacy environments.
+
+<Note>
+  Core Web Vitals metrics are only available in modern browsers, so this change does not affect metric coverage in practice.
+</Note>
+
+If your site must support legacy browsers, keep the `web-vitals` library isolated from your main bundle to prevent errors from propagating to other code:
+
+- **Recommended:** load the library in a separate `<script type="module">` or use your bundler's code-splitting feature (Rollup, esbuild, webpack).
+- **If you must bundle together:** configure your bundler to transpile `node_modules/web-vitals` along with the rest of your application code. Most bundlers skip `node_modules` transpilation by default.
+
+---
+
+### Attribution selector classes are now sorted
+
+In `CLSAttribution`, `INPAttribution`, and `LCPAttribution`, the CSS classes that appear in element selectors are now sorted alphabetically. This reduces selector cardinality and makes reports easier to group over time.
+
+<Warning>
+  This is not a breaking TypeScript API change, but it **will cause a short-term divergence** in your selector-based reports during the cutover period from v4 to v5 as historical data uses the old ordering and new data uses the new ordering.
+</Warning>
+
+No code changes are required. The difference will stabilise once all your traffic has migrated to v5.
+
+---
+
+### `LCPAttribution.element` renamed to `.target`
+
+The `element` property on `LCPAttribution` has been renamed to `target` for consistency with the rest of the attribution API.
+
+```diff
+  onLCP((metric) => {
+    const { attribution } = metric;
+-   console.log(attribution.element);
++   console.log(attribution.target);
+  });
+```
+
+---
+
+### `INPAttribution.interactionTargetElement` removed
+
+`INPAttribution.interactionTargetElement` is no longer included by default. The new `generateTarget` option (see [New features](#new-features) below) lets you opt into custom target strings instead.
+
+```diff
+  onINP((metric) => {
+    const { attribution } = metric;
+-   const el = attribution.interactionTargetElement;
++   // Use attribution.interactionTarget (a CSS selector string) instead,
++   // or pass generateTarget to produce a custom string from the element.
+  });
+```
+
+To produce a custom identifier for the interacting element, pass a `generateTarget` function. It receives the DOM `Node` that was interacted with (or `null`) and must return a `string | undefined`:
+
+```js
+import { onINP } from 'web-vitals/attribution';
+
+function customGenerateTarget(el) {
+  // Use a stable data attribute if available
+  if (el?.dataset?.trackingId) {
+    return el.dataset.trackingId;
+  }
+  // Return undefined to fall back to the default CSS selector
+}
+
+onINP(
+  (metric) => {
+    // metric.attribution.interactionTarget is now the value returned
+    // by customGenerateTarget (or the default selector if it returned undefined)
+    console.log(metric.attribution.interactionTarget);
+  },
+  { generateTarget: customGenerateTarget },
+);
+```
+
+---
+
+## New features
+
+### Custom target generation with `generateTarget`
+
+The attribution build now accepts a `generateTarget` option on `onCLS()`, `onINP()`, and `onLCP()`. This function receives the DOM `Node` (or `null`) associated with the metric and must return a `string | undefined`. The returned string replaces the default CSS selector in the attribution object's target field.
+
+<Check>
+  This replaces the removed `interactionTargetElement` and the renamed `element` properties with a flexible, opt-in API.
+</Check>
+
+```js
+import { onINP } from 'web-vitals/attribution';
+
+function customGenerateTarget(el) {
+  // el is the Node that received the interaction, or null
+  if (el?.dataset?.name) {
+    return el.dataset.name;
+  }
+  // Return undefined to fall back to the default CSS selector
+}
+
+onINP(
+  (metric) => {
+    // interactionTarget is the string returned by customGenerateTarget
+    // (or the default CSS selector if undefined was returned)
+    console.log(metric.attribution.interactionTarget);
+  },
+  { generateTarget: customGenerateTarget },
+);
+```
+
+<Note>
+  If `generateTarget` returns `null` or `undefined`, the library falls back to the default `getSelector` behaviour automatically.
+</Note>
+
+---
+
+### Extended INP attribution via LoAF
+
+`INPAttribution` now exposes the following additional fields derived from Long Animation Frame (LoAF) entries that overlap with the INP candidate interaction:
+
+| Field | Description |
+|---|---|
+| `longestScript` | The longest individual script entry within the overlapping LoAF entries. |
+| `totalScriptDuration` | Total time spent executing scripts across all overlapping LoAF entries. |
+| `totalStyleAndLayoutDuration` | Total time spent in style and layout work across all overlapping LoAF entries. |
+| `totalPaintDuration` | Total time spent in paint work across all overlapping LoAF entries. |
+| `totalUnattributedDuration` | Total LoAF duration not attributed to scripts, style, layout, or paint. |
+
+```js
+import { onINP } from 'web-vitals/attribution';
+
+onINP((metric) => {
+  const {
+    longestScript,
+    totalScriptDuration,
+    totalStyleAndLayoutDuration,
+    totalPaintDuration,
+    totalUnattributedDuration,
+  } = metric.attribution;
+
+  console.log('Longest script:', longestScript);
+  console.log('Script time:', totalScriptDuration);
+  console.log('Style/layout time:', totalStyleAndLayoutDuration);
+});
+```
+
+---
+
+## Notable v5.x improvements
+
+Subsequent v5 patch and minor releases include several important fixes and performance improvements.
+
+### v5.1.0 (2025-07-31)
+
+- **Early `visibility-change` registration** — the listener is now registered sooner to avoid missing page-hide events on some navigations.
+- **LCP only finalised on trusted user events** — `onLCP` now only finalises the metric on events where `isTrusted` is `true`, preventing synthetic events from incorrectly stopping LCP observation.
+- **`generateTarget` null fallback** — if your custom `generateTarget` function returns `null` or `undefined`, the default `getSelector` implementation is used automatically.
+
+### v5.2.0 (2026-03-25)
+
+<Check>
+  v5.2 is the recommended minimum version for all new projects.
+</Check>
+
+- **`includeProcessedEventEntries` option** — a new option on `onINP()` in the attribution build. When set to `false`, the `INPAttribution.processedEventEntries` array is omitted to conserve memory. Defaults to `true`.
+- **LCP fix for late-attached observers** — resolved a bug where `onLCP` could miss the LCP candidate when the observer was registered after the entry was already buffered.
+- **Hidden-page handling** — improved handling for pages that start in a hidden state and for `onLCP` registered inside a `visibilitychange` callback.
+- **Memory improvements** — pending INP events are now capped to conserve memory; idle callbacks are reliably cleared in `whenIdleOrHidden`.
+- **Performance improvements** — replaced `filter()[0]` with `find()`, switched to `queueMicrotask` for scheduling, and reduced bundle size through internal refactoring.
+
+```js
+import { onINP } from 'web-vitals/attribution';
+
+// Available in v5.2+ — pass false to omit processedEventEntries and save memory
+onINP(console.log, { includeProcessedEventEntries: false });
+```

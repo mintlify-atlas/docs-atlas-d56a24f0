@@ -1,0 +1,190 @@
+---
+title: "Metric type and metric-specific TypeScript interfaces"
+description: "Reference for the base Metric interface, the five metric-specific subtypes (CLS, FCP, INP, LCP, TTFB), rating thresholds, and the LoadState type."
+---
+
+Every metric function in web-vitals (`onCLS`, `onFCP`, `onINP`, `onLCP`, `onTTFB`) calls your callback with an object that conforms to the `Metric` interface. TypeScript users benefit from narrowed subtypes — `CLSMetric`, `FCPMetric`, `INPMetric`, `LCPMetric`, and `TTFBMetric` — that refine the `name` and `entries` fields to the exact types produced by each metric. These subtypes extend `Metric` and add no additional properties beyond those narrowings.
+
+## The Metric interface
+
+All five metric functions produce objects that extend this base interface:
+
+```typescript
+interface Metric {
+  name: 'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTFB';
+  value: number;
+  rating: 'good' | 'needs-improvement' | 'poor';
+  delta: number;
+  id: string;
+  entries: PerformanceEntry[];
+  navigationType:
+    | 'navigate'
+    | 'reload'
+    | 'back-forward'
+    | 'back-forward-cache'
+    | 'prerender'
+    | 'restore';
+}
+```
+
+<ResponseField name="name" type="'CLS' | 'FCP' | 'INP' | 'LCP' | 'TTFB'" required>
+  The metric acronym. Use this field to identify which metric is being reported when handling multiple metrics in a single callback.
+</ResponseField>
+
+<ResponseField name="value" type="number" required>
+  The current value of the metric. For time-based metrics (FCP, INP, LCP, TTFB) this is a `DOMHighResTimeStamp` in milliseconds. For CLS this is a unitless `double` representing the layout shift score.
+</ResponseField>
+
+<ResponseField name="rating" type="'good' | 'needs-improvement' | 'poor'" required>
+  Classification of the metric value against the metric's published thresholds. Prefer this field over manually comparing `value` against threshold constants.
+</ResponseField>
+
+<ResponseField name="delta" type="number" required>
+  The difference between the current `value` and the last-reported value. On the first report, `delta` and `value` are always equal. Use `delta` with analytics providers that accumulate incremental values rather than overwriting a previous value.
+</ResponseField>
+
+<ResponseField name="id" type="string" required>
+  A unique string identifying this metric instance for the current page load. Use this field alongside `delta` to aggregate multiple reports from the same page load. A new `id` is generated each time the page is restored from the back/forward cache, because bfcache restores are treated as separate page visits.
+</ResponseField>
+
+<ResponseField name="entries" type="PerformanceEntry[]" required>
+  The raw performance entries used to compute the metric value. This array may be empty — for example, a CLS score of `0` has no contributing layout-shift entries. Metric-specific subtypes narrow this to a more precise entry type (see below).
+</ResponseField>
+
+<ResponseField name="navigationType" type="string" required>
+  The navigation type that initiated the page load. Values correspond to the Navigation Timing API with three web-vitals-specific additions:
+
+  | Value | Description |
+  | --- | --- |
+  | `navigate` | Standard navigation (link click, address bar, etc.) |
+  | `reload` | Page reload |
+  | `back-forward` | Back/forward browser navigation |
+  | `back-forward-cache` | Page restored from the bfcache |
+  | `prerender` | Page was prerendered before the user navigated to it |
+  | `restore` | Page was discarded by the browser and restored by the user |
+</ResponseField>
+
+## Metric-specific types
+
+Each metric function's callback is typed to receive a narrowed subtype of `Metric`. The only differences from the base interface are a literal `name` and a more specific `entries` array type.
+
+### CLSMetric
+
+```typescript
+interface CLSMetric extends Metric {
+  name: 'CLS';
+  entries: LayoutShift[];
+}
+```
+
+`entries` is an array of `LayoutShift` performance entries. Each `LayoutShift` entry has a `value` (the individual shift score), `sources` (`LayoutShiftAttribution[]`), and `hadRecentInput` (whether the shift was preceded by user input and is therefore excluded from the CLS score).
+
+### FCPMetric
+
+```typescript
+interface FCPMetric extends Metric {
+  name: 'FCP';
+  entries: PerformancePaintTiming[];
+}
+```
+
+`entries` contains the `PerformancePaintTiming` entry with `name: 'first-contentful-paint'`. There is typically one entry.
+
+### INPMetric
+
+```typescript
+interface INPMetric extends Metric {
+  name: 'INP';
+  entries: PerformanceEventTiming[];
+}
+```
+
+`entries` holds the `PerformanceEventTiming` entries from the INP candidate interaction — the interaction whose duration represents the current INP value.
+
+### LCPMetric
+
+```typescript
+interface LCPMetric extends Metric {
+  name: 'LCP';
+  entries: LargestContentfulPaint[];
+}
+```
+
+`entries` accumulates all `LargestContentfulPaint` entries observed so far. The last entry in the array corresponds to the current `value`. When `reportAllChanges` is `false`, the callback fires once with the final list; when `true`, it fires on each new candidate.
+
+### TTFBMetric
+
+```typescript
+interface TTFBMetric extends Metric {
+  name: 'TTFB';
+  entries: PerformanceNavigationTiming[];
+}
+```
+
+`entries` contains the page's `PerformanceNavigationTiming` entry. This entry exposes the full Navigation Timing breakdown (DNS, TCP, request, response phases) in addition to TTFB itself.
+
+## Rating thresholds
+
+The threshold pair for each metric is exported as a `MetricRatingThresholds` tuple:
+
+```typescript
+type MetricRatingThresholds = [number, number];
+```
+
+The two values define the boundaries between ratings:
+
+| Metric value | Rating |
+| --- | --- |
+| ≤ `[0]` | `good` |
+| > `[0]` and ≤ `[1]` | `needs-improvement` |
+| > `[1]` | `poor` |
+
+Import the threshold constants if you need the raw values:
+
+```typescript
+import {
+  CLSThresholds,
+  FCPThresholds,
+  INPThresholds,
+  LCPThresholds,
+  TTFBThresholds,
+} from 'web-vitals';
+
+console.log(CLSThresholds);  // [0.1, 0.25]
+console.log(FCPThresholds);  // [1800, 3000]
+console.log(INPThresholds);  // [200, 500]
+console.log(LCPThresholds);  // [2500, 4000]
+console.log(TTFBThresholds); // [800, 1800]
+```
+
+<Note>
+  You rarely need to compare `value` against these constants yourself. The `metric.rating` field already contains the correct classification. Use threshold constants only when you need to display the threshold values themselves — for example, in a legend or tooltip.
+</Note>
+
+## The LoadState type
+
+`LoadState` describes the loading phase of the document at the moment a metric event occurred. It appears in several attribution interfaces. The values are similar to `document.readyState` but subdivide the `'interactive'` state into two distinct phases:
+
+```typescript
+type LoadState =
+  | 'loading'
+  | 'dom-interactive'
+  | 'dom-content-loaded'
+  | 'complete';
+```
+
+<ResponseField name="loading" type="string">
+  The initial HTML document response has not yet been fully downloaded and parsed. Equivalent to `document.readyState === 'loading'`.
+</ResponseField>
+
+<ResponseField name="dom-interactive" type="string">
+  The document has been fully parsed, but deferred and synchronous scripts may not have finished executing. Corresponds to the moment the `DOMContentLoaded` event is about to fire, before all synchronous scripts have run.
+</ResponseField>
+
+<ResponseField name="dom-content-loaded" type="string">
+  The document is fully loaded and parsed, and all synchronous and deferred scripts (excluding `async` scripts) have finished executing. Corresponds to after the `DOMContentLoaded` event has fired.
+</ResponseField>
+
+<ResponseField name="complete" type="string">
+  The document and all sub-resources (images, stylesheets, iframes) have finished loading. Equivalent to `document.readyState === 'complete'`.
+</ResponseField>

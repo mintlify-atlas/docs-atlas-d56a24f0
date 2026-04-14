@@ -1,0 +1,134 @@
+---
+title: "onINP() — Interaction to Next Paint API reference"
+description: "Measures page responsiveness by tracking the worst interaction latency. Reports a DOMHighResTimeStamp in ms. Supported in Chromium, Firefox, and Safari."
+---
+
+`onINP()` calculates the [Interaction to Next Paint (INP)](https://web.dev/articles/inp) value for the current page and invokes your callback once the value is ready to report. INP is a [Core Web Vital](https://web.dev/articles/vitals#core_web_vitals) that measures the latency of the slowest interaction a user had with a page — from the moment they click, tap, or press a key until the browser paints the next frame in response. The reported value is a [`DOMHighResTimeStamp`](https://developer.mozilla.org/docs/Web/API/DOMHighResTimeStamp) in milliseconds. The callback fires when the page's `visibilityState` changes to `hidden`, and may be called more than once during a page's lifetime.
+
+## Function signature
+
+```typescript
+function onINP(callback: (metric: INPMetric) => void, opts?: INPReportOpts): void
+```
+
+## Parameters
+
+<ParamField body="callback" type="(metric: INPMetric) => void" required>
+  Called with an `INPMetric` object when the INP value is ready to report — typically when the page is hidden — and again whenever the value increases.
+</ParamField>
+
+<ParamField body="opts.reportAllChanges" type="boolean">
+  When `true`, the callback fires as soon as the INP value is first determined and again each time a new interaction causes it to increase. Note that individual interactions are not reported on every input — only when they change the overall INP score. Defaults to `false`.
+</ParamField>
+
+<ParamField body="opts.durationThreshold" type="number" default="40">
+  The minimum interaction duration in milliseconds that will be considered for INP reporting. Events shorter than this threshold are ignored. The default of `40` ms is chosen to balance signal quality and performance overhead. Note that any interactions dispatched before the library initializes are subject to the browser's own `event-timing` default of 104 ms.
+</ParamField>
+
+## Return value
+
+`void`. As a side effect, `onINP()` creates a `PerformanceObserver` that listens for `event` and `first-input` entries for the lifetime of the page. Call this function at most once per page load.
+
+## Metric object (INPMetric)
+
+The callback receives an `INPMetric` object with the following properties:
+
+<ResponseField name="name" type="string">
+  Always `'INP'`.
+</ResponseField>
+
+<ResponseField name="value" type="number">
+  A `DOMHighResTimeStamp` in milliseconds representing the latency of the slowest qualifying interaction (excluding outliers via the p98 estimation described below).
+</ResponseField>
+
+<ResponseField name="rating" type="'good' | 'needs-improvement' | 'poor'">
+  Classification against the INP thresholds (`INPThresholds = [200, 500]`):
+
+  | Rating | Value |
+  | --- | --- |
+  | `good` | ≤ 200 ms |
+  | `needs-improvement` | > 200 ms and ≤ 500 ms |
+  | `poor` | > 500 ms |
+</ResponseField>
+
+<ResponseField name="entries" type="PerformanceEventTiming[]">
+  The `event` or `first-input` performance entries corresponding to the interaction that produced the reported INP value.
+</ResponseField>
+
+<ResponseField name="delta" type="number">
+  The difference between the current `value` and the last reported value. On the first report, `delta` equals `value`. Use `delta` when your analytics provider does not support overwriting previously sent values.
+</ResponseField>
+
+<ResponseField name="id" type="string">
+  A unique identifier for this metric instance. A new `id` is generated after each back/forward cache restore.
+</ResponseField>
+
+<ResponseField name="navigationType" type="string">
+  The navigation type: `'navigate'`, `'reload'`, `'back-forward'`, `'back-forward-cache'`, `'prerender'`, or `'restore'`.
+</ResponseField>
+
+## How INP is calculated
+
+INP is not simply the maximum interaction latency. The library tracks up to the 10 longest interactions observed during the page's lifetime. To reduce the impact of outliers on pages with many interactions, it uses a **p98 estimation**: it selects the interaction at the index `floor(interactionCount / 50)` from the sorted list of longest interactions. For a page with fewer than 50 interactions this is always the longest one; for pages with more interactions, occasional extreme outliers are discounted.
+
+Interaction latency is measured from the start of the event (pointer down, key down, etc.) to the time the next frame is painted. The `durationThreshold` option controls which events are even considered — interactions faster than the threshold are excluded to avoid noisy data, with the exception of `first-input` entries which are always observed regardless of duration.
+
+## Usage
+
+**Basic usage** — log INP when the page is hidden:
+
+```js
+import { onINP } from 'web-vitals';
+
+onINP(console.log);
+```
+
+**Track every change** — useful for debugging interaction performance:
+
+```js
+import { onINP } from 'web-vitals';
+
+onINP(console.log, { reportAllChanges: true });
+```
+
+**Lower the duration threshold** — observe shorter interactions (increases overhead):
+
+```js
+import { onINP } from 'web-vitals';
+
+onINP(console.log, { durationThreshold: 16 });
+```
+
+**Send to an analytics endpoint:**
+
+```js
+import { onINP } from 'web-vitals';
+
+function sendToAnalytics({ name, value, id, delta }) {
+  navigator.sendBeacon('/analytics', JSON.stringify({ name, value, id, delta }));
+}
+
+onINP(sendToAnalytics);
+```
+
+## Behavior notes
+
+<Note>
+  INP is not reported if the user never interacts with the page. Passive page views will never trigger the callback.
+</Note>
+
+<Note>
+  INP should be monitored for the entire page lifespan. Because browsers often suppress callbacks after a page is backgrounded, `onINP()` always fires when `visibilityState` changes to `hidden`. Your callback may be called more than once per page load. Use the `id` and `delta` properties to correctly aggregate multiple reports.
+</Note>
+
+<Note>
+  The default `durationThreshold` of `40` ms only applies after the library initializes. Interactions that occur before initialization are filtered by the browser's built-in `event-timing` threshold of `104` ms. To ensure the first interaction is always captured regardless of duration, the library also observes `first-input` entries separately.
+</Note>
+
+<Warning>
+  Do not call `onINP()` more than once per page load. Each call registers a new `PerformanceObserver` and attaches event listeners for the lifetime of the page. Repeated calls on the same page will cause a memory leak.
+</Warning>
+
+## Browser support
+
+`onINP()` requires `PerformanceEventTiming` with `interactionId` support. It is supported in **Chromium, Firefox, and Safari**. In browsers that lack support, the function returns early without registering any observers.

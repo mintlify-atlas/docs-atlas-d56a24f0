@@ -1,0 +1,72 @@
+---
+title: "web-vitals: JavaScript library for Web Vitals metrics"
+description: "A tiny (~2KB) JavaScript library that measures Core Web Vitals and key performance metrics on real users, matching Chrome's methodology exactly."
+---
+
+The `web-vitals` library is a small (~2KB, brotli'd), modular JavaScript library for measuring all the Web Vitals metrics on real users. Its measurements match exactly how Chrome computes and reports these values to tools like PageSpeed Insights, the Chrome User Experience Report (CrUX), and Search Console's Speed Report — so the numbers you collect in the field are directly comparable to what Google sees.
+
+## What are Web Vitals?
+
+Web Vitals are a set of metrics that capture real user experiences across loading, interactivity, and visual stability. The three **Core Web Vitals** are the most important — they directly influence Google Search ranking — and the library also covers two additional diagnostic metrics.
+
+### Core Web Vitals
+
+| Metric | What it measures | Good threshold |
+|---|---|---|
+| **CLS** — Cumulative Layout Shift | Visual stability. How much does page content unexpectedly move during load? | ≤ 0.1 |
+| **INP** — Interaction to Next Paint | Responsiveness. How long does it take the page to visually respond to a user interaction? | ≤ 200 ms |
+| **LCP** — Largest Contentful Paint | Loading performance. How fast does the largest visible content element render? | ≤ 2500 ms |
+
+### Additional metrics
+
+| Metric | What it measures | Good threshold |
+|---|---|---|
+| **FCP** — First Contentful Paint | Time from navigation start until the first text or image is rendered | ≤ 1800 ms |
+| **TTFB** — Time to First Byte | Time from navigation start until the first byte of the server response is received | ≤ 800 ms |
+
+Each metric callback receives a `rating` property (`"good"`, `"needs-improvement"`, or `"poor"`) so you never have to compare raw values against thresholds manually.
+
+<Note>
+  INP is not reported if the user never interacts with the page. CLS, FCP, and LCP are not reported if the page was loaded in the background.
+</Note>
+
+## How it works
+
+The library registers a [`PerformanceObserver`](https://developer.mozilla.org/docs/Web/API/PerformanceObserver) for each metric using the `buffered: true` flag. This means the observer receives all performance entries that were already dispatched before the library loaded, not just entries that arrive after registration.
+
+The practical consequence is that **you do not need to load `web-vitals` early in the page lifecycle**. Deferring it until after user-impacting code has run is the recommended approach — it will still capture accurate values for every metric.
+
+Each metric function accepts a callback that is invoked once the metric value is ready to report:
+
+```js
+import {onCLS, onINP, onLCP} from 'web-vitals';
+
+onCLS(console.log);
+onINP(console.log);
+onLCP(console.log);
+```
+
+The callback may fire more than once per page load. CLS and INP report whenever the page's `visibilityState` changes to `hidden`, and all metrics report again after a back/forward cache restore.
+
+## Browser support
+
+The library's JavaScript uses only [Baseline Widely Available](https://web.dev/baseline) features and is tested in Chrome, Firefox, and Safari. However, the underlying browser APIs required to capture each metric vary:
+
+| Function | Supported browsers |
+|---|---|
+| `onCLS()` | Chromium only |
+| `onFCP()` | Chromium, Firefox, Safari |
+| `onINP()` | Chromium, Firefox, Safari |
+| `onLCP()` | Chromium, Firefox, Safari |
+| `onTTFB()` | Chromium, Firefox, Safari |
+
+CLS is the only metric that is currently Chromium-exclusive, because it depends on the `layout-shift` PerformanceObserver entry type which other browsers have not yet implemented.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install the library and start measuring Core Web Vitals in minutes.
+  </Card>
+  <Card title="Build options" icon="cube" href="/builds/overview">
+    Choose between the standard build, the attribution build, and CDN variants.
+  </Card>
+</CardGroup>

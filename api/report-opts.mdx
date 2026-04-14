@@ -1,0 +1,181 @@
+---
+title: "ReportOpts and metric function configuration options"
+description: "Reference for ReportOpts, INPReportOpts, AttributionReportOpts, and INPAttributionReportOpts — the options objects for each web-vitals metric function."
+---
+
+Each metric function in web-vitals accepts an optional options object as its second argument. These options objects control when your callback is invoked and, for the attribution build, how DOM elements are stringified for reporting. There are four options interfaces: `ReportOpts` (the base), `INPReportOpts` (extends it with an INP-specific threshold), `AttributionReportOpts` (extends the base for the attribution build), and `INPAttributionReportOpts` (combines both extensions for INP in the attribution build).
+
+## ReportOpts
+
+`ReportOpts` is the base options interface accepted by `onCLS`, `onFCP`, `onLCP`, and `onTTFB` in both the standard and attribution builds.
+
+```typescript
+interface ReportOpts {
+  reportAllChanges?: boolean;
+}
+```
+
+<ResponseField name="reportAllChanges" type="boolean" default="false">
+  When `true`, the callback fires each time the metric value changes throughout the page's lifespan, not only when the final value is ready to report. When `false` (the default), the callback fires once at the point the library considers the metric's value stable enough to send.
+
+  Note that `reportAllChanges` reports when the **metric changes**, not for every individual input to the metric. For CLS, a new layout shift that does not increase the CLS score will not trigger a callback even with `reportAllChanges: true`. For INP, an interaction that does not produce a new worst-case INP will not trigger a callback. Regardless of this option, the final reported value is always the same.
+</ResponseField>
+
+**Interface:**
+
+```typescript
+interface ReportOpts {
+  reportAllChanges?: boolean;
+}
+```
+
+**Usage:**
+
+```js
+import { onCLS, onLCP } from 'web-vitals';
+
+// Default: callback fires once when the value is ready to report
+onCLS(console.log);
+
+// reportAllChanges: callback fires whenever the metric value increases
+onCLS(console.log, { reportAllChanges: true });
+onLCP(console.log, { reportAllChanges: true });
+```
+
+## INPReportOpts
+
+`INPReportOpts` extends `ReportOpts` and is accepted by `onINP` in the standard build. It adds a threshold that controls the minimum event duration that the library observes.
+
+```typescript
+interface INPReportOpts extends ReportOpts {
+  durationThreshold?: number;
+}
+```
+
+<ResponseField name="reportAllChanges" type="boolean" default="false">
+  Inherited from `ReportOpts`. When `true`, the callback fires each time a new interaction produces a higher INP value.
+</ResponseField>
+
+<ResponseField name="durationThreshold" type="number" default="40">
+  The minimum event duration in milliseconds for an interaction to be observed by the library. Events shorter than this threshold are ignored. The default of 40ms is chosen to balance usefulness against performance overhead: reporting on interactions that span only one or two frames provides little actionable insight while adding processing cost for every user gesture. The `first-input` entry is always observed regardless of this threshold, ensuring an INP value is always available. Note that the browser's native `event-timing` default of 104ms applies to events emitted before the library initializes; this threshold only applies after initialization.
+</ResponseField>
+
+**Usage:**
+
+```js
+import { onINP } from 'web-vitals';
+
+// Default threshold of 40ms
+onINP(console.log);
+
+// Lower threshold to observe more interactions (higher overhead)
+onINP(console.log, { durationThreshold: 16 });
+
+// Higher threshold to observe only noticeably slow interactions
+onINP(console.log, { durationThreshold: 100 });
+```
+
+## AttributionReportOpts
+
+`AttributionReportOpts` extends `ReportOpts` and is accepted by `onCLS`, `onFCP`, `onLCP`, and `onTTFB` in the attribution build (imported from `web-vitals/attribution`). It adds the ability to customize how DOM elements are converted to strings in attribution objects.
+
+```typescript
+interface AttributionReportOpts extends ReportOpts {
+  generateTarget?: (el: Node | null) => string | undefined;
+}
+```
+
+<ResponseField name="reportAllChanges" type="boolean" default="false">
+  Inherited from `ReportOpts`.
+</ResponseField>
+
+<ResponseField name="generateTarget" type="(el: Node | null) => string | undefined">
+  An optional function that receives a DOM `Node` (or `null` if the element is unavailable) and returns a custom string identifier. When provided, its return value replaces the default CSS selector string in the following attribution fields: `CLSAttribution.largestShiftTarget`, `INPAttribution.interactionTarget`, and `LCPAttribution.target`. If `generateTarget` returns `null` or `undefined`, the library falls back to the default CSS selector.
+</ResponseField>
+
+The `generateTarget` option is useful when your pages have stable data attributes that are more meaningful than auto-generated CSS selectors. For example, if elements have a `data-name` attribute:
+
+```js
+import { onLCP, onCLS, onINP } from 'web-vitals/attribution';
+
+function customGenerateTarget(el) {
+  // Use data-name attribute if present
+  if (el?.dataset?.name) {
+    return el.dataset.name;
+  }
+  // Return null or undefined to fall back to the default selector
+  return undefined;
+}
+
+onLCP(sendToAnalytics, { generateTarget: customGenerateTarget });
+onCLS(sendToAnalytics, { generateTarget: customGenerateTarget });
+onINP(sendToAnalytics, { generateTarget: customGenerateTarget });
+```
+
+## INPAttributionReportOpts
+
+`INPAttributionReportOpts` extends `AttributionReportOpts` and is accepted by `onINP` in the attribution build. It combines the `durationThreshold` from `INPReportOpts` with the `generateTarget` from `AttributionReportOpts`, and adds a memory-saving option for the `processedEventEntries` field.
+
+```typescript
+interface INPAttributionReportOpts extends AttributionReportOpts {
+  durationThreshold?: number;
+  includeProcessedEventEntries?: boolean;
+}
+```
+
+<ResponseField name="reportAllChanges" type="boolean" default="false">
+  Inherited from `ReportOpts`.
+</ResponseField>
+
+<ResponseField name="generateTarget" type="(el: Node | null) => string | null | undefined">
+  Inherited from `AttributionReportOpts`. Customizes the string returned in `INPAttribution.interactionTarget`.
+</ResponseField>
+
+<ResponseField name="durationThreshold" type="number" default="40">
+  Minimum event duration in milliseconds for an interaction to be observed. Same behavior as in `INPReportOpts`.
+</ResponseField>
+
+<ResponseField name="includeProcessedEventEntries" type="boolean" default="true">
+  When `true` (the default), the `INPAttribution.processedEventEntries` array is populated with all `PerformanceEventTiming` entries processed during the same animation frame as the INP candidate interaction. Set to `false` to receive an empty array instead, which conserves memory on pages with many interactions. Use this option when you only need the INP sub-part breakdowns and do not need the raw event entries.
+</ResponseField>
+
+**Usage:**
+
+```typescript
+import { onINP } from 'web-vitals/attribution';
+
+function customGenerateTarget(el: Node | null): string | undefined {
+  const element = el as HTMLElement | null;
+  return element?.dataset?.trackingId ?? undefined;
+}
+
+onINP(
+  (metric) => {
+    const { interactionTarget, inputDelay, processingDuration, presentationDelay } =
+      metric.attribution;
+    sendToAnalytics({
+      name: metric.name,
+      value: metric.value,
+      rating: metric.rating,
+      interactionTarget,
+      inputDelay,
+      processingDuration,
+      presentationDelay,
+    });
+  },
+  {
+    generateTarget: customGenerateTarget,
+    includeProcessedEventEntries: false, // conserve memory
+    durationThreshold: 40,
+  },
+);
+```
+
+<CardGroup cols={2}>
+  <Card title="onINP()" icon="pointer" href="/api/on-inp">
+    Function reference for `onINP()`, including its signature, parameters, and behavior notes.
+  </Card>
+  <Card title="Attribution guide" icon="magnifying-glass" href="/guides/attribution">
+    How to use the attribution build to debug poor Core Web Vitals scores in the field.
+  </Card>
+</CardGroup>

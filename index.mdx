@@ -1,97 +1,65 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "web-vitals: Core Web Vitals for real user monitoring"
+description: "Measure Core Web Vitals on real users with a tiny, modular JavaScript library that accurately matches Chrome's measurement methodology."
 ---
 
-## Setting up
+The `web-vitals` library makes it easy to measure all [Core Web Vitals](https://web.dev/articles/vitals) and key performance metrics on real users. At just ~2KB (brotli'd), it gives you accurate, actionable data that matches exactly what Chrome reports to tools like PageSpeed Insights, Search Console, and CrUX.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Introduction" icon="book-open" href="/introduction">
+    Learn what web-vitals measures and why it matters for your site's performance.
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install the library and start measuring Core Web Vitals in under 5 minutes.
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="Sending Data" icon="paper-plane" href="/guides/sending-data">
+    Send metrics to Google Analytics, custom endpoints, or any analytics provider.
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="Attribution Build" icon="magnifying-glass" href="/guides/attribution">
+    Diagnose performance issues with detailed root-cause attribution data.
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Core Web Vitals
 
-Everything you need to create world-class documentation.
+The three metrics that matter most for user experience — and that Google uses for Search ranking:
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
+<CardGroup cols={3}>
+  <Card title="CLS" icon="arrows-up-down-left-right" href="/api/on-cls">
+    **Cumulative Layout Shift** — Measures visual stability. How much does page content unexpectedly shift?
   </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
+  <Card title="INP" icon="computer-mouse" href="/api/on-inp">
+    **Interaction to Next Paint** — Measures responsiveness. How quickly does the page respond to interactions?
   </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
+  <Card title="LCP" icon="image" href="/api/on-lcp">
+    **Largest Contentful Paint** — Measures loading performance. How fast does the main content appear?
   </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+</CardGroup>
 
-## Need inspiration?
+## Additional Metrics
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+<CardGroup cols={2}>
+  <Card title="FCP" icon="paintbrush" href="/api/on-fcp">
+    **First Contentful Paint** — Time until the first content is rendered on screen.
+  </Card>
+  <Card title="TTFB" icon="server" href="/api/on-ttfb">
+    **Time to First Byte** — Time from navigation start until the first byte of response is received.
+  </Card>
+</CardGroup>
+
+## Explore the API Reference
+
+<CardGroup cols={2}>
+  <Card title="Metric Functions" icon="function" href="/api/on-cls">
+    Full reference for `onCLS`, `onFCP`, `onINP`, `onLCP`, and `onTTFB`.
+  </Card>
+  <Card title="Types & Interfaces" icon="brackets-curly" href="/api/metric">
+    TypeScript interfaces for `Metric`, attribution objects, and configuration options.
+  </Card>
+  <Card title="Build Options" icon="cube" href="/builds/overview">
+    Choose between the standard and attribution builds, plus UMD and IIFE variants.
+  </Card>
+  <Card title="Migration Guide" icon="arrow-up-right-from-square" href="/migration/upgrading-to-v5">
+    Upgrade from v4 to v5 — breaking changes, new features, and removed APIs.
+  </Card>
+</CardGroup>
